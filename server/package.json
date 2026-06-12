@@ -1,0 +1,17 @@
+{
+  "name": "riomedica-detailing-server",
+  "version": "1.0.0",
+  "description": "Express server backend for Riomedica Healthcare detailing app",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "riomedica-detailing-app",
+  "version": "1.0.0",
+  "description": "Riomedica Healthcare Detailing and Admin App",
+  "scripts": {
+    "install-all": "npm install && npm install --prefix server && npm install --prefix client",
+    "dev": "npx -y concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix client",
+    "prod": "node server/server.js",
+    "start": "npm run dev"
+  }
+}
