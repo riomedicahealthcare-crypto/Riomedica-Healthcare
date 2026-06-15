@@ -355,6 +355,8 @@ export default function AdminLayout() {
   };
 
   useEffect(() => {
+    if (!isAdminLoggedIn) return;
+
     loadData();
     syncToFirebase(); // 🔥 Push database to Firebase on mount to ensure synchronization
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -454,7 +456,7 @@ export default function AdminLayout() {
       unsubRegs();
       unsubConnection();
     };
-  }, []);
+  }, [isAdminLoggedIn]);
 
   useEffect(() => {
     if (isAdminLoggedIn) {
