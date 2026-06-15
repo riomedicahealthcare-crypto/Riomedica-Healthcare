@@ -1,4 +1,5 @@
 // client/src/utils.js
+import { fbWriteOtp, fbDeleteOtp, fbVerifyOtp } from './firebaseDb';
 
 const getApiBase = () => {
   if (typeof window === 'undefined') return 'http://localhost:5000/api';
@@ -233,7 +234,11 @@ const FALLBACK_DATA = {
   branding: {
     companyName: "RIOMEDICA",
     tagline: "Healthcare",
-    logo: ""
+    logo: "",
+    landingTitle: "Welcome to Riomedica",
+    landingDescription: "Interactive Detailing & B2B Portal. We provide premium pharmaceutical products, from tablets and syrups to ointments and more. Our commitment is to deliver excellence in every product, prioritizing your health and well-being.",
+    landingBgImage: "",
+    topRightBadge: ""
   },
   banners: [
     {
@@ -602,6 +607,14 @@ function handleLocalFallback(url, options) {
     const idx = db.registrations.findIndex(r => r.id === id);
     if (idx === -1) throw new Error('Registration not found');
 
+    if (method === 'DELETE' && !subPath) {
+      db.registrations.splice(idx, 1);
+      if (!db.mrs) db.mrs = [];
+      db.mrs = db.mrs.filter(m => m.distributorId !== id);
+      saveLocalDb(db);
+      return { message: 'Franchise Partner account and all associated MR profiles have been terminated.' };
+    }
+
     if (subPath === 'approve' && method === 'POST') {
       const { username, password } = JSON.parse(options.body);
       db.registrations[idx].status = 'approved';
@@ -684,6 +697,30 @@ function handleLocalFallback(url, options) {
   }
 
   // --- OTP MOCKS ---
+  if (path === '/otp/send-email-otp') {
+    if (method === 'POST') {
+      const { email, type } = JSON.parse(options.body);
+      const mockOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      if (!window.activeLocalOtps) {
+        window.activeLocalOtps = { mobile: {}, email: {} };
+      }
+      window.activeLocalOtps.email[email.toLowerCase()] = mockOtp;
+      console.log(`[OFFLINE MOCK EMAIL OTP] Code to ${email} is: ${mockOtp}`);
+      return { message: 'Verification code sent successfully (Offline Mock)', mockOtp, email };
+    }
+  }
+
+  if (path === '/otp/verify-email-otp') {
+    if (method === 'POST') {
+      const { email, otp } = JSON.parse(options.body);
+      const savedOtp = window.activeLocalOtps?.email?.[email.toLowerCase()];
+      if (!savedOtp || savedOtp !== otp) {
+        throw new Error('Invalid verification OTP code');
+      }
+      return { message: 'Email verified successfully (Offline Mock)' };
+    }
+  }
+
   if (path === '/otp/send-mobile') {
     if (method === 'POST') {
       const { mobile } = JSON.parse(options.body);
@@ -751,20 +788,91 @@ function handleLocalFallback(url, options) {
     }
   }
 
+  if (path === '/user/change-password') {
+    if (method === 'POST') {
+      const { userId, oldPassword, newPassword } = JSON.parse(options.body);
+      const regIdx = db.registrations.findIndex(r => r.id === userId);
+      if (regIdx !== -1) {
+        if (db.registrations[regIdx].loginDetails && db.registrations[regIdx].loginDetails.password === oldPassword) {
+          db.registrations[regIdx].loginDetails.password = newPassword;
+          saveLocalDb(db);
+          return { message: 'Password changed successfully.' };
+        } else {
+          throw new Error('Incorrect old password.');
+        }
+      }
+      const mrIdx = db.mrs.findIndex(m => m.id === userId);
+      if (mrIdx !== -1) {
+        if (db.mrs[mrIdx].loginDetails && db.mrs[mrIdx].loginDetails.password === oldPassword) {
+          db.mrs[mrIdx].loginDetails.password = newPassword;
+          saveLocalDb(db);
+          return { message: 'Password changed successfully.' };
+        } else {
+          throw new Error('Incorrect old password.');
+        }
+      }
+      throw new Error('User not found.');
+    }
+  }
+
+  if (path === '/admin/reset-password') {
+    if (method === 'POST') {
+      const { userId, newPassword } = JSON.parse(options.body);
+      const regIdx = db.registrations.findIndex(r => r.id === userId);
+      if (regIdx !== -1) {
+        if (!db.registrations[regIdx].loginDetails) {
+          db.registrations[regIdx].loginDetails = {};
+        }
+        db.registrations[regIdx].loginDetails.password = newPassword;
+        saveLocalDb(db);
+        return { message: 'Password reset successfully.' };
+      }
+      throw new Error('User not found.');
+    }
+  }
+
+  if (path === '/mrs/reset-password') {
+    if (method === 'POST') {
+      const { mrId, newPassword } = JSON.parse(options.body);
+      if (!db.mrs) db.mrs = [];
+      const mrIdx = db.mrs.findIndex(m => m.id === mrId);
+      if (mrIdx !== -1) {
+        if (!db.mrs[mrIdx].loginDetails) {
+          db.mrs[mrIdx].loginDetails = {};
+        }
+        db.mrs[mrIdx].loginDetails.password = newPassword;
+        saveLocalDb(db);
+        return { message: 'MR password reset successfully.' };
+      }
+      throw new Error('MR not found.');
+    }
+  }
+
   // --- BRANDING ---
   if (path === '/branding') {
-    if (method === 'GET') return db.branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "" };
+    if (method === 'GET') return db.branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "", landingTitle: "", landingDescription: "", landingBgImage: "", topRightBadge: "" };
     if (method === 'POST') {
       if (!db.branding) {
-        db.branding = { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "" };
+        db.branding = { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "", landingTitle: "", landingDescription: "", landingBgImage: "", topRightBadge: "" };
       }
       if (options.body instanceof FormData) {
         const formData = options.body;
         if (formData.get('companyName') !== null) db.branding.companyName = formData.get('companyName');
         if (formData.get('tagline') !== null) db.branding.tagline = formData.get('tagline');
+        if (formData.get('landingTitle') !== null) db.branding.landingTitle = formData.get('landingTitle');
+        if (formData.get('landingDescription') !== null) db.branding.landingDescription = formData.get('landingDescription');
+        
         const logoFile = formData.get('logo');
         if (logoFile && logoFile.name) {
           db.branding.logo = 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=200';
+        }
+        const bgFile = formData.get('landingBgImage');
+        if (bgFile && bgFile.name) {
+          db.branding.landingBgImage = 'https://images.unsplash.com/photo-1584515901367-f1c21b5297e2?w=800';
+        }
+        const badgeFile = formData.get('topRightBadge');
+        if (badgeFile && badgeFile.name) {
+          db.branding.topRightBadge = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100';
         }
       } else {
         const bodyObj = JSON.parse(options.body || '{}');
@@ -798,7 +906,8 @@ function handleLocalFallback(url, options) {
           id: 'banner_' + Date.now().toString(36),
           title: formData.get('title') || '',
           imageUrl: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800',
-          linkUrl: formData.get('linkUrl') || ''
+          linkUrl: formData.get('linkUrl') || '',
+          linkProductId: formData.get('linkProductId') || ''
         };
       } else {
         const bodyObj = JSON.parse(options.body || '{}');
@@ -807,6 +916,7 @@ function handleLocalFallback(url, options) {
           title: '',
           imageUrl: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800',
           linkUrl: '',
+          linkProductId: '',
           ...bodyObj
         };
       }
@@ -964,40 +1074,23 @@ function handleLocalFallback(url, options) {
       if (matchedProduct) {
         const mrpVal = matchedProduct.mrp ? (String(matchedProduct.mrp).includes('₹') ? matchedProduct.mrp : `₹${matchedProduct.mrp}`) : 'Price on request';
         if (detectedLang === "hi") {
-          reply = `**${matchedProduct.name}** के बारे में जानकारी:\n` +
-                  `• **संरचना (Composition):** ${matchedProduct.composition}\n` +
-                  `• **उपयोग (Indications):** ${matchedProduct.indications || 'सामान्य उपयोग'}\n` +
-                  `• **खुराक (Dosage):** ${matchedProduct.dosage || 'चिकित्सक के निर्देशानुसार'}\n` +
-                  `• **मूल्य (MRP):** ${mrpVal}\n\n` +
-                  `*(ऑफ़लाइन सिमुलेशन मोड)*`;
+          reply = `नमस्ते, मैं प्रिया हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage || 'चिकित्सक के निर्देशानुसार'} है और इसका एमआरपी ${mrpVal} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
         } else if (detectedLang === "ta") {
-          reply = `**${matchedProduct.name}** தயாரிப்பு விவரங்கள்:\n` +
-                  `• **கலவை (Composition):** ${matchedProduct.composition}\n` +
-                  `• **பயன்கள் (Indications):** ${matchedProduct.indications || 'பொதுவான பயன்பாடு'}\n` +
-                  `• **விலை (MRP):** ${mrpVal}\n\n` +
-                  `*(ஆஃப்லைன் சிமுலேஷன் முறை)*`;
+          reply = `வணக்கம், நான் பிரியா பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய விலை ${mrpVal} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
         } else if (detectedLang === "mr") {
-          reply = `**${matchedProduct.name}** बद्दल माहिती:\n` +
-                  `• **संयोजन (Composition):** ${matchedProduct.composition}\n` +
-                  `• **वापर (Indications):** ${matchedProduct.indications || 'सामान्य वापर'}\n` +
-                  `• **किंमत (MRP):** ${mrpVal}\n\n` +
-                  `*(ऑफलाइन सिम्युलेशन मोड)*`;
+          reply = `नमस्कार, मी प्रिया बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याची किंमत ${mrpVal} आहे. तुम्हाला याबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
         } else {
-          reply = `Here are the details for **${matchedProduct.name}**:\n` +
-                  `• **Composition:** ${matchedProduct.composition}\n` +
-                  `• **Indications:** ${matchedProduct.indications || 'General clinical use'}\n` +
-                  `• **MRP:** ${mrpVal}\n\n` +
-                  `*(Offline Simulation Mode)*`;
+          reply = `Hello, this is Priya from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the MRP for this medicine is ${mrpVal}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
         }
       } else {
         if (detectedLang === "hi") {
-          reply = "नमस्ते! मैं रियोबॉट हूँ। आप मुझसे किसी भी ब्रांड (जैसे 'Rabrio 20') के बारे में पूछ सकते हैं।\n\n*(ऑफ़लाइन सिमुलेशन मोड)*";
+          reply = "नमस्ते! मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (ऑफ़लाइन सिमुलेशन मोड)";
         } else if (detectedLang === "ta") {
-          reply = "வணக்கம்! நான் ரியோபாட். நீங்கள் தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம்.\n\n*(ஆஃப்லைன் சிமுலேஷன் முறை)*";
+          reply = "வணக்கம்! நான் பிரியா பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (ஆஃப்லைன் சிமுலேஷன் முறை)";
         } else if (detectedLang === "mr") {
-          reply = "नमस्कार! मी रियोबॉट आहे. तुम्ही मला औषधांबद्दल विचारू शकता.\n\n*(ऑफलाइन सिम्युलेशन मोड)*";
+          reply = "नमस्कार! मी प्रिया बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (ऑफलाइन सिम्युलेशन मोड)";
         } else {
-          reply = "Hello! I am **Riobot**, your Riomedica AI Assistant. Ask me about any of our brands (e.g., 'Tell me about Rabrio 20').\n\n*(Offline Simulation Mode)*";
+          reply = "Hello! This is Priya from the Riomedica customer support team. I am here to help you just like a real support coordinator. Ask me about any of our brands, such as 'Tell me about Rabrio 20'. (Offline Simulation Mode)";
         }
       }
 
@@ -1122,35 +1215,112 @@ export const approveRegistration = (id, credentials) => safeFetch(`${API_BASE}/r
 export const denyRegistration = (id) => safeFetch(`${API_BASE}/registrations/${id}/deny`, {
   method: 'POST'
 });
+export const terminateFranchisePartner = (id) => safeFetch(`${API_BASE}/registrations/${id}`, {
+  method: 'DELETE'
+});
+export const changeUserPassword = (userId, oldPassword, newPassword) => safeFetch(`${API_BASE}/user/change-password`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ userId, oldPassword, newPassword })
+});
+export const adminResetPassword = (userId, newPassword) => safeFetch(`${API_BASE}/admin/reset-password`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ userId, newPassword })
+});
+export const resetMRPassword = (mrId, newPassword) => safeFetch(`${API_BASE}/mrs/reset-password`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ mrId, newPassword })
+});
 export const loginUser = (credentials) => safeFetch(`${API_BASE}/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(credentials)
 });
 
-export const sendMobileOtp = (mobile) => safeFetch(`${API_BASE}/otp/send-mobile`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ mobile })
-});
+export const sendMobileOtp = async (mobile) => {
+  const res = await safeFetch(`${API_BASE}/otp/send-mobile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mobile })
+  });
+  if (res && res.mockOtp) {
+    try {
+      await fbWriteOtp('mobile', mobile, res.mockOtp);
+    } catch (fbErr) {
+      console.warn('[FB] failed to write mobile OTP to Firebase:', fbErr.message);
+    }
+  }
+  return res;
+};
 
-export const verifyMobileOtp = (mobile, otp) => safeFetch(`${API_BASE}/otp/verify-mobile`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ mobile, otp })
-});
+export const verifyMobileOtp = async (mobile, otp) => {
+  try {
+    const res = await safeFetch(`${API_BASE}/otp/verify-mobile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mobile, otp })
+    });
+    try {
+      await fbDeleteOtp('mobile', mobile);
+    } catch (e) {}
+    return res;
+  } catch (err) {
+    const verified = await fbVerifyOtp('mobile', mobile, otp);
+    if (verified) {
+      return { success: true, message: 'Mobile verified successfully via Firebase fallback' };
+    }
+    throw err;
+  }
+};
 
-export const sendEmailOtp = (usernameOrEmail) => safeFetch(`${API_BASE}/otp/send-email`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ usernameOrEmail })
-});
+export const sendEmailOtp = async (usernameOrEmail) => {
+  const res = await safeFetch(`${API_BASE}/otp/send-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ usernameOrEmail })
+  });
+  if (res && res.mockOtp) {
+    try {
+      await fbWriteOtp('email_reset', usernameOrEmail, res.mockOtp);
+    } catch (fbErr) {
+      console.warn('[FB] failed to write email reset OTP to Firebase:', fbErr.message);
+    }
+  }
+  return res;
+};
 
-export const verifyEmailReset = (usernameOrEmail, otp, newPassword) => safeFetch(`${API_BASE}/otp/verify-email-reset`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ usernameOrEmail, otp, newPassword })
-});
+export const verifyEmailReset = async (usernameOrEmail, otp, newPassword) => {
+  try {
+    const res = await safeFetch(`${API_BASE}/otp/verify-email-reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usernameOrEmail, otp, newPassword })
+    });
+    try {
+      await fbDeleteOtp('email_reset', usernameOrEmail);
+    } catch (e) {}
+    return res;
+  } catch (err) {
+    const verified = await fbVerifyOtp('email_reset', usernameOrEmail, otp);
+    if (verified) {
+      const db = getOfflineDbData();
+      const key = usernameOrEmail.toLowerCase();
+      const idx = db.registrations.findIndex(
+        r => r.status === 'approved' &&
+             ((r.email && r.email.toLowerCase() === key) ||
+              (r.loginDetails && r.loginDetails.username.toLowerCase() === key))
+      );
+      if (idx !== -1) {
+        db.registrations[idx].loginDetails.password = newPassword;
+        saveLocalDb(db);
+      }
+      return { success: true, message: 'Password reset successful via Firebase fallback' };
+    }
+    throw err;
+  }
+};
 
 export const getBranding = () => safeFetch(`${API_BASE}/branding`);
 export const updateBranding = (formData) => safeFetch(`${API_BASE}/branding`, {
@@ -1241,4 +1411,40 @@ export const getOfflineDbData = () => getLocalDb();
 export const resetOfflineDb = () => {
   localStorage.setItem('riomedica_db', JSON.stringify(FALLBACK_DATA));
   window.location.reload();
+};
+
+export const sendGmailOtp = async (email, type) => {
+  const res = await safeFetch(`${API_BASE}/otp/send-email-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, type })
+  });
+  if (res && res.mockOtp) {
+    try {
+      await fbWriteOtp('email', email, res.mockOtp);
+    } catch (fbErr) {
+      console.warn('[FB] failed to write Gmail OTP to Firebase:', fbErr.message);
+    }
+  }
+  return res;
+};
+
+export const verifyGmailOtp = async (email, otp) => {
+  try {
+    const res = await safeFetch(`${API_BASE}/otp/verify-email-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp })
+    });
+    try {
+      await fbDeleteOtp('email', email);
+    } catch (e) {}
+    return res;
+  } catch (err) {
+    const verified = await fbVerifyOtp('email', email, otp);
+    if (verified) {
+      return { success: true, message: 'Email verified successfully via Firebase fallback' };
+    }
+    throw err;
+  }
 };

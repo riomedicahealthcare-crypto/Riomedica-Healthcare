@@ -1,0 +1,69 @@
+{
+  "project_info": {
+    "project_number": "502281093407",
+    "firebase_url": "https://riomedica-healthcare-default-rtdb.firebaseio.com",
+    "project_id": "riomedica-healthcare",
+    "storage_bucket": "riomedica-healthcare.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:502281093407:android:c67abd87f164de1dfc702a",
+        "android_client_info": {
+          "package_name": "com.riomedica.healthcare"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "502281093407-85p8a90vcv6to1t2g41utk16o734lm52.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhbOn155u8Pxi9BGaPxP9DMai0TOX7eo4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "502281093407-85p8a90vcv6to1t2g41utk16o734lm52.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:502281093407:android:c67abd87f164de1dfc702b",
+        "android_client_info": {
+          "package_name": "com.riomedica.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "502281093407-85p8a90vcv6to1t2g41utk16o734lm52.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhbOn155u8Pxi9BGaPxP9DMai0TOX7eo4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "502281093407-85p8a90vcv6to1t2g41utk16o734lm52.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

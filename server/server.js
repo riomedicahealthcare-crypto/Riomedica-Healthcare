@@ -5,6 +5,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as XLSX from 'xlsx';
+import nodemailer from 'nodemailer';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, update } from 'firebase/database';
+
 
 // ES Module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -79,8 +83,12 @@ const registerUploads = upload.fields([
   { name: 'pan', maxCount: 1 }
 ]);
 
-// Branding logo upload configuration
-const brandingUpload = upload.single('logo');
+// Branding logo, landing background, and badge uploads configuration
+const brandingUpload = upload.fields([
+  { name: 'logo', maxCount: 1 },
+  { name: 'landingBgImage', maxCount: 1 },
+  { name: 'topRightBadge', maxCount: 1 }
+]);
 
 // Banner image upload configuration
 const bannerUpload = upload.single('image');
@@ -457,6 +465,114 @@ app.post('/api/registrations/:id/deny', (req, res) => {
   res.json(db.registrations[index]);
 });
 
+// Terminate franchise partner account and delete associated MRs
+app.delete('/api/registrations/:id', (req, res) => {
+  const db = readDb();
+  if (!db.registrations) db.registrations = [];
+  if (!db.mrs) db.mrs = [];
+
+  const index = db.registrations.findIndex(r => r.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'Franchise Partner not found' });
+
+  // Remove the registration
+  db.registrations.splice(index, 1);
+
+  // Cascade delete MRs
+  db.mrs = db.mrs.filter(m => m.distributorId !== req.params.id);
+
+  writeDb(db);
+  res.json({ message: 'Franchise Partner account and all associated MR profiles terminated successfully.' });
+});
+
+// User change password (Franchise Partner or MR)
+app.post('/api/user/change-password', (req, res) => {
+  const { userId, oldPassword, newPassword } = req.body;
+  if (!userId || !oldPassword || !newPassword) {
+    return res.status(400).json({ error: 'userId, oldPassword, and newPassword are required' });
+  }
+
+  const db = readDb();
+  if (!db.registrations) db.registrations = [];
+  if (!db.mrs) db.mrs = [];
+
+  // Search in Franchise Partners (approved registrations)
+  const regIndex = db.registrations.findIndex(r => r.id === userId);
+  if (regIndex !== -1) {
+    const reg = db.registrations[regIndex];
+    if (reg.loginDetails && reg.loginDetails.password === oldPassword) {
+      db.registrations[regIndex].loginDetails.password = newPassword;
+      writeDb(db);
+      return res.json({ message: 'Password changed successfully.' });
+    } else {
+      return res.status(400).json({ error: 'Incorrect old password' });
+    }
+  }
+
+  // Search in MRs
+  const mrIndex = db.mrs.findIndex(m => m.id === userId);
+  if (mrIndex !== -1) {
+    const mr = db.mrs[mrIndex];
+    if (mr.loginDetails && mr.loginDetails.password === oldPassword) {
+      db.mrs[mrIndex].loginDetails.password = newPassword;
+      writeDb(db);
+      return res.json({ message: 'Password changed successfully.' });
+    } else {
+      return res.status(400).json({ error: 'Incorrect old password' });
+    }
+  }
+
+  return res.status(404).json({ error: 'User not found' });
+});
+
+// Admin reset user password
+app.post('/api/admin/reset-password', (req, res) => {
+  const { userId, newPassword } = req.body;
+  if (!userId || !newPassword) {
+    return res.status(400).json({ error: 'userId and newPassword are required' });
+  }
+
+  const db = readDb();
+  if (!db.registrations) db.registrations = [];
+  if (!db.mrs) db.mrs = [];
+
+  // Search in registrations (Franchise Partners)
+  const regIndex = db.registrations.findIndex(r => r.id === userId);
+  if (regIndex !== -1) {
+    if (!db.registrations[regIndex].loginDetails) {
+      db.registrations[regIndex].loginDetails = {};
+    }
+    db.registrations[regIndex].loginDetails.password = newPassword;
+    writeDb(db);
+    return res.json({ message: 'Password reset successfully.' });
+  }
+
+  return res.status(404).json({ error: 'User not found' });
+});
+
+// Franchise resets MR password
+app.post('/api/mrs/reset-password', (req, res) => {
+  const { mrId, newPassword } = req.body;
+  if (!mrId || !newPassword) {
+    return res.status(400).json({ error: 'mrId and newPassword are required' });
+  }
+
+  const db = readDb();
+  if (!db.mrs) db.mrs = [];
+
+  const mrIndex = db.mrs.findIndex(m => m.id === mrId);
+  if (mrIndex !== -1) {
+    if (!db.mrs[mrIndex].loginDetails) {
+      db.mrs[mrIndex].loginDetails = {};
+    }
+    db.mrs[mrIndex].loginDetails.password = newPassword;
+    writeDb(db);
+    return res.json({ message: 'MR password reset successfully.' });
+  }
+
+  return res.status(404).json({ error: 'MR not found' });
+});
+
+
 // Authenticate user login
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
@@ -543,6 +659,211 @@ const activeOtps = {
 // Helper to generate a 6-digit random number string
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
+// Helper to send Gmail OTP via SMTP
+const sendOtpMail = async (toEmail, otp, type) => {
+  const db = readDb();
+  const settings = db.settings || {};
+  const isSmtp = settings.otpChannel === 'smtp' && settings.smtpEmail && settings.smtpPassword;
+
+  console.log(`\n--- [GMAIL OTP GATEWAY] ---`);
+  console.log(`To Email: ${toEmail}`);
+  console.log(`Purpose: ${type === 'register' ? 'Registration' : 'Sign In'}`);
+  console.log(`Verification Code: ${otp}`);
+  console.log(`Mode: ${isSmtp ? 'Gmail SMTP Relay (Real-Time)' : 'Simulated (Mock On-Screen Alert)'}`);
+  console.log(`---------------------------\n`);
+
+  if (!isSmtp) {
+    return { success: true, mock: true };
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: settings.smtpEmail,
+        pass: settings.smtpPassword
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+
+    const mailOptions = {
+      from: `"Riomedica Healthcare" <${settings.smtpEmail}>`,
+      to: toEmail,
+      subject: `Riomedica Verification Code: ${otp}`,
+      html: `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h2 style="color: #10b981; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">RIOMEDICA HEALTHCARE</h2>
+            <span style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Secure Verification Service</span>
+          </div>
+          <div style="font-size: 15px; color: #334155; line-height: 1.6; margin-bottom: 24px;">
+            <p style="margin-top: 0;">Hello,</p>
+            <p>Please use the following 6-digit security code to verify your account for <strong>${type === 'register' ? 'Registration' : 'Sign In'}</strong>. This code is valid for 5 minutes.</p>
+            <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
+              <span style="font-family: monospace; font-size: 36px; font-weight: 800; color: #0f172a; letter-spacing: 6px; display: inline-block;">${otp}</span>
+            </div>
+            <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">If you did not request this verification code, please ignore this email or contact support.</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+          <div style="text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.4;">
+            <p style="margin: 0;">&copy; 2026 Riomedica Healthcare Private Limited.</p>
+            <p style="margin: 4px 0 0 0;">All Rights Reserved.</p>
+          </div>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    return { success: true, mock: false };
+  } catch (err) {
+    console.error(`[SMTP ERROR] Failed to send Gmail OTP email to ${toEmail}:`, err.message);
+    return { success: false, mock: true, error: err.message };
+  }
+};
+
+// ─── FIREBASE REALTIME DATABASE OTP LISTENER ─────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBhbOn155u8Pxi9BGaPxP9DMai0TOX7eo4",
+  authDomain: "riomedica-healthcare.firebaseapp.com",
+  databaseURL: "https://riomedica-healthcare-default-rtdb.firebaseio.com",
+  projectId: "riomedica-healthcare",
+  storageBucket: "riomedica-healthcare.firebasestorage.app",
+  messagingSenderId: "502281093407",
+  appId: "1:502281093407:android:c67abd87f164de1dfc702a"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const firebaseDb = getDatabase(firebaseApp);
+
+const startFirebaseOtpListener = () => {
+  const activeOtpsRef = ref(firebaseDb, 'active_otps');
+  console.log("[Firebase Server] Listening for active OTP requests on Firebase RTDB...");
+  
+  onValue(activeOtpsRef, async (snapshot) => {
+    if (!snapshot.exists()) return;
+    const data = snapshot.val();
+    
+    // Process email OTPs
+    if (data.email) {
+      for (const [cleanKey, record] of Object.entries(data.email)) {
+        if (record && record.isSent === false && record.originalKey && record.otp) {
+          console.log(`[Firebase Server] Found unsent email OTP request for ${record.originalKey}. Code: ${record.otp}`);
+          
+          // Mark as processing to prevent duplicate sends
+          await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { isSent: 'sending' });
+          
+          const mailRes = await sendOtpMail(record.originalKey, record.otp, record.type || 'login');
+          if (mailRes.success && !mailRes.mock) {
+            console.log(`[Firebase Server] Email sent successfully to ${record.originalKey}`);
+            await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { 
+              isSent: true, 
+              sentAt: new Date().toISOString() 
+            });
+          } else {
+            const status = mailRes.mock ? 'mocked' : 'failed';
+            console.error(`[Firebase Server] Failed to send email to ${record.originalKey} (status: ${status}):`, mailRes.error);
+            await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { 
+              isSent: status, 
+              error: mailRes.error || (mailRes.mock ? 'SMTP settings not configured' : 'SMTP Error') 
+            });
+          }
+        }
+      }
+    }
+
+    // Process password reset email OTPs
+    if (data.email_reset) {
+      for (const [cleanKey, record] of Object.entries(data.email_reset)) {
+        if (record && record.isSent === false && record.originalKey && record.otp) {
+          console.log(`[Firebase Server] Found unsent password reset OTP request for ${record.originalKey}. Code: ${record.otp}`);
+          
+          // Mark as processing
+          await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { isSent: 'sending' });
+          
+          const mailRes = await sendOtpMail(record.originalKey, record.otp, 'register');
+          if (mailRes.success && !mailRes.mock) {
+            console.log(`[Firebase Server] Reset email sent successfully to ${record.originalKey}`);
+            await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { 
+              isSent: true, 
+              sentAt: new Date().toISOString() 
+            });
+          } else {
+            const status = mailRes.mock ? 'mocked' : 'failed';
+            console.error(`[Firebase Server] Failed to send reset email to ${record.originalKey} (status: ${status}):`, mailRes.error);
+            await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { 
+              isSent: status, 
+              error: mailRes.error || (mailRes.mock ? 'SMTP settings not configured' : 'SMTP Error') 
+            });
+          }
+        }
+      }
+    }
+  });
+};
+
+// Start Firebase listener on load
+try {
+  startFirebaseOtpListener();
+} catch (fbInitErr) {
+  console.error("Failed to start Firebase OTP listener:", fbInitErr.message);
+}
+
+// Route to send general email OTP (either register or login)
+app.post('/api/otp/send-email-otp', async (req, res) => {
+  const { email, type } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+
+  const otp = generateOtp();
+  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minute expiry
+  const key = email.toLowerCase();
+
+  activeOtps.email[key] = { otp, expiresAt };
+
+  const mailRes = await sendOtpMail(email, otp, type || 'login');
+
+  res.json({ 
+    message: 'Verification code sent successfully', 
+    mockOtp: otp, 
+    email,
+    isMock: mailRes.mock,
+    error: mailRes.error || null
+  });
+});
+
+// Route to verify email OTP
+app.post('/api/otp/verify-email-otp', (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP code are required' });
+  }
+
+  const key = email.toLowerCase();
+  const record = activeOtps.email[key];
+
+  if (!record) {
+    return res.status(400).json({ error: 'No verification code requested for this email' });
+  }
+
+  if (Date.now() > record.expiresAt) {
+    delete activeOtps.email[key];
+    return res.status(400).json({ error: 'Verification code has expired' });
+  }
+
+  if (record.otp !== otp) {
+    return res.status(400).json({ error: 'Invalid verification code' });
+  }
+
+  // OTP verified, clear it
+  delete activeOtps.email[key];
+  res.json({ message: 'Email verified successfully' });
+});
+
 // Route to send mobile OTP
 app.post('/api/otp/send-mobile', (req, res) => {
   const { mobile } = req.body;
@@ -590,7 +911,7 @@ app.post('/api/otp/verify-mobile', (req, res) => {
 });
 
 // Route to send email OTP for password reset
-app.post('/api/otp/send-email', (req, res) => {
+app.post('/api/otp/send-email', async (req, res) => {
   const { usernameOrEmail } = req.body;
   if (!usernameOrEmail) {
     return res.status(400).json({ error: 'Username or email is required' });
@@ -616,12 +937,15 @@ app.post('/api/otp/send-email', (req, res) => {
 
   activeOtps.email[key] = { otp, expiresAt };
 
-  console.log(`\n--- [MOCK EMAIL GATEWAY] ---`);
-  console.log(`To Email: ${user.email}`);
-  console.log(`Reset Code: ${otp}`);
-  console.log(`----------------------------\n`);
+  const mailRes = await sendOtpMail(user.email, otp, 'register');
 
-  res.json({ message: 'OTP sent to registered email address', mockOtp: otp, email: user.email });
+  res.json({ 
+    message: 'OTP sent to registered email address', 
+    mockOtp: otp, 
+    email: user.email,
+    isMock: mailRes.mock,
+    error: mailRes.error || null
+  });
 });
 
 // Route to verify email OTP and reset password
@@ -674,22 +998,40 @@ app.post('/api/otp/verify-email-reset', (req, res) => {
 // --- BRANDING ROUTES ---
 app.get('/api/branding', (req, res) => {
   const db = readDb();
-  res.json(db.branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "" });
+  res.json(db.branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "", landingTitle: "", landingDescription: "", landingBgImage: "", topRightBadge: "" });
 });
 
 app.post('/api/branding', brandingUpload, (req, res) => {
-  const { companyName, tagline } = req.body;
+  const { companyName, tagline, landingTitle, landingDescription } = req.body;
   const db = readDb();
 
   if (!db.branding) {
-    db.branding = { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "" };
+    db.branding = { 
+      companyName: "RIOMEDICA", 
+      tagline: "Healthcare", 
+      logo: "", 
+      landingTitle: "Welcome to Riomedica", 
+      landingDescription: "Interactive Detailing & B2B Portal. We provide premium pharmaceutical products, from tablets and syrups to ointments and more.", 
+      landingBgImage: "", 
+      topRightBadge: "" 
+    };
   }
 
   if (companyName !== undefined) db.branding.companyName = companyName;
   if (tagline !== undefined) db.branding.tagline = tagline;
+  if (landingTitle !== undefined) db.branding.landingTitle = landingTitle;
+  if (landingDescription !== undefined) db.branding.landingDescription = landingDescription;
 
-  if (req.file) {
-    db.branding.logo = `/uploads/${req.file.filename}`;
+  if (req.files) {
+    if (req.files.logo && req.files.logo[0]) {
+      db.branding.logo = `/uploads/${req.files.logo[0].filename}`;
+    }
+    if (req.files.landingBgImage && req.files.landingBgImage[0]) {
+      db.branding.landingBgImage = `/uploads/${req.files.landingBgImage[0].filename}`;
+    }
+    if (req.files.topRightBadge && req.files.topRightBadge[0]) {
+      db.branding.topRightBadge = `/uploads/${req.files.topRightBadge[0].filename}`;
+    }
   }
 
   writeDb(db);
@@ -699,14 +1041,17 @@ app.post('/api/branding', brandingUpload, (req, res) => {
 // --- SETTINGS ROUTES ---
 app.get('/api/settings', (req, res) => {
   const db = readDb();
-  res.json(db.settings || { geminiApiKey: "" });
+  res.json(db.settings || { geminiApiKey: "", otpChannel: "mock", smtpEmail: "", smtpPassword: "" });
 });
 
 app.post('/api/settings', (req, res) => {
-  const { geminiApiKey } = req.body;
+  const { geminiApiKey, otpChannel, smtpEmail, smtpPassword } = req.body;
   const db = readDb();
   db.settings = db.settings || {};
-  db.settings.geminiApiKey = geminiApiKey || "";
+  if (geminiApiKey !== undefined) db.settings.geminiApiKey = geminiApiKey || "";
+  if (otpChannel !== undefined) db.settings.otpChannel = otpChannel || "mock";
+  if (smtpEmail !== undefined) db.settings.smtpEmail = smtpEmail || "";
+  if (smtpPassword !== undefined) db.settings.smtpPassword = smtpPassword || "";
   writeDb(db);
   res.json(db.settings);
 });
@@ -718,7 +1063,7 @@ app.get('/api/banners', (req, res) => {
 });
 
 app.post('/api/banners', bannerUpload, (req, res) => {
-  const { title, linkUrl } = req.body;
+  const { title, linkUrl, linkProductId } = req.body;
   if (!req.file) {
     return res.status(400).json({ error: 'Banner image file is required' });
   }
@@ -730,7 +1075,8 @@ app.post('/api/banners', bannerUpload, (req, res) => {
     id,
     title: title || '',
     imageUrl: `/uploads/${req.file.filename}`,
-    linkUrl: linkUrl || ''
+    linkUrl: linkUrl || '',
+    linkProductId: linkProductId || ''
   };
 
   if (!db.banners) db.banners = [];
@@ -952,45 +1298,21 @@ app.post('/api/ai/chat', async (req, res) => {
 
     if (matchedProduct) {
       if (detectedLang === "hi") {
-        reply = `**${matchedProduct.name}** के बारे में जानकारी:\n` +
-                `• **संरचना (Composition):** ${matchedProduct.composition}\n` +
-                `• **उपयोग (Indications):** ${matchedProduct.indications || 'सामान्य उपयोग'}\n` +
-                `• **खुराक (Dosage):** ${matchedProduct.dosage}\n` +
-                `• **मूल्य (MRP):** ${matchedProduct.mrp}\n` +
-                `• **नई लॉन्च:** ${matchedProduct.isNewLaunch}\n\n` +
-                `*(ऑफ़लाइन सिमुलेशन मोड)*`;
+        reply = `नमस्ते, मैं प्रिया हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage} है और इसका एमआरपी ${matchedProduct.mrp} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
       } else if (detectedLang === "ta") {
-        reply = `**${matchedProduct.name}** தயாரிப்பு विवरण:\n` +
-                `• **கலவை (Composition):** ${matchedProduct.composition}\n` +
-                `• **பயன்கள் (Indications):** ${matchedProduct.indications || 'பொதுவான பயன்பாடு'}\n` +
-                `• **அளவு (Dosage):** ${matchedProduct.dosage}\n` +
-                `• **விலை (MRP):** ${matchedProduct.mrp}\n` +
-                `• **புதிய அறிமுகம்:** ${matchedProduct.isNewLaunch}\n\n` +
-                `*(ஆஃப்லைன் சிமுலேஷன் முறை)*`;
+        reply = `வணக்கம், நான் பிரியா பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய அளவு ${matchedProduct.dosage} மற்றும் இதன் விலை ${matchedProduct.mrp} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
       } else if (detectedLang === "mr") {
-        reply = `**${matchedProduct.name}** बद्दल माहिती:\n` +
-                `• **संयोजन (Composition):** ${matchedProduct.composition}\n` +
-                `• **वापर (Indications):** ${matchedProduct.indications || 'सामान्य वापर'}\n` +
-                `• **डोस (Dosage):** ${matchedProduct.dosage}\n` +
-                `• **किंमत (MRP):** ${matchedProduct.mrp}\n` +
-                `• **नवीन लॉन्च:** ${matchedProduct.isNewLaunch}\n\n` +
-                `*(ऑफलाइन सिम्युलेशन मोड)*`;
+        reply = `नमस्कार, मी प्रिया बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याचा डोस ${matchedProduct.dosage} असून याची किंमत ${matchedProduct.mrp} आहे. तुम्हाला याबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
       } else {
-        reply = `Here are the details for **${matchedProduct.name}**:\n` +
-                `• **Composition:** ${matchedProduct.composition}\n` +
-                `• **Indications:** ${matchedProduct.indications || 'General clinical use'}\n` +
-                `• **Dosage:** ${matchedProduct.dosage}\n` +
-                `• **MRP:** ${matchedProduct.mrp}\n` +
-                `• **New Launch:** ${matchedProduct.isNewLaunch}\n\n` +
-                `*(Offline Simulation Mode)*`;
+        reply = `Hello, this is Priya from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the standard dosage is ${matchedProduct.dosage}. The MRP for this medicine is ${matchedProduct.mrp}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
       }
     } else if (lowerMsg.includes('offer') || lowerMsg.includes('scheme') || lowerMsg.includes('सूट') || lowerMsg.includes('ऑफर')) {
       if (offersList.length > 0) {
-        const offersStr = offersList.map(o => `• **${o.title}**: ${o.discount} (${o.description}) - Expiry: ${o.expiry}`).join('\n');
+        const offersStr = offersList.map(o => `${o.title} has an offer of ${o.discount} with details as ${o.description}, expiring on ${o.expiry}`).join('. ');
         if (detectedLang === "hi") {
-          reply = `हमारे वर्तमान ऑफर्स:\n${offersStr}\n\n*(GEMINI_API_KEY सेट करके असली AI के साथ बात करें)*`;
+          reply = `हमारे वर्तमान ऑफर्स इस प्रकार हैं: ${offersStr}. (GEMINI_API_KEY सेट करके असली AI के साथ बात करें)`;
         } else {
-          reply = `Here are our active bumper offers:\n${offersStr}\n\n*(Configure GEMINI_API_KEY on the server for full multilingual AI)*`;
+          reply = `Here are our active bumper offers: ${offersStr}. (Configure GEMINI_API_KEY on the server for full multilingual AI)`;
         }
       } else {
         reply = detectedLang === "hi" 
@@ -999,13 +1321,13 @@ app.post('/api/ai/chat', async (req, res) => {
       }
     } else {
       if (detectedLang === "hi") {
-        reply = "नमस्ते! मैं रियोबॉट हूँ, आपका Riomedica AI सहायक। आप मुझसे किसी भी दवा (जैसे 'Rabrio 20', 'Rioceft') के बारे में पूछ सकते हैं।\n\n*(नोट: पूर्ण बहुभाषी AI संवाद के लिए कृपया कृपया GEMINI_API_KEY पर्यावरण चर सेट करें)*";
+        reply = "नमस्ते! मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (पूर्ण बहुभाषी AI संवाद के लिए कृपया GEMINI_API_KEY सेट करें)";
       } else if (detectedLang === "ta") {
-        reply = "வணக்கம்! நான் ரியோபாட், உங்கள் Riomedica AI உதவியாளர். நீங்கள் என்னிடம் தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம்.\n\n*(குறிப்பு: GEMINI_API_KEY ஐ உள்ளமைக்கவும்)*";
+        reply = "வணக்கம்! நான் பிரியா பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (முழுமையான AI சேவைக்கு GEMINI_API_KEY ஐ உள்ளமைக்கவும்)";
       } else if (detectedLang === "mr") {
-        reply = "नमस्कार! मी रियोबॉट आहे, तुमचा Riomedica AI सहाय्यक. तुम्ही मला औषधांबद्दल विचारू शकता.\n\n*(टीप: GEMINI_API_KEY सेट करा)*";
+        reply = "नमस्कार! मी प्रिया बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (पूर्ण AI संवादासाठी GEMINI_API_KEY सेट करा)";
       } else {
-        reply = "Hello! I am **Riobot**, your Riomedica AI Assistant. You can ask me about any of our brands (e.g., 'Tell me about Rabrio 20', 'What is the price of ALCARIO-PRO?').\n\n*Configure GEMINI_API_KEY on the server to activate full multilingual Generative AI support.*";
+        reply = "Hello! This is Priya from the Riomedica customer support team. I am here to help you just like a real support coordinator. You can ask me about any of our brands, such as 'Tell me about Rabrio 20' or 'What is the price of ALCARIO-PRO?'. (Configure GEMINI_API_KEY on the server to activate full multilingual Generative AI support.)";
       }
     }
 
@@ -1033,17 +1355,18 @@ app.post('/api/ai/chat', async (req, res) => {
 
   // GEMINI ACTIVE STREAMING MODE
   try {
-    const systemPrompt = `You are the Riomedica AI Assistant (Riobot), a professional, smart, and friendly virtual assistant for Franchise Partners and Medical Representatives (MRs) of Riomedica Healthcare.
+    const systemPrompt = `You are Priya, a warm, friendly, and highly professional human customer support representative at the Riomedica Healthcare service desk.
+Never refer to yourself as an AI assistant, AI bot, or virtual robot. Speak and behave as a real human agent talking to the user over the phone.
 Your database of products and active offers is:
 Products: ${JSON.stringify(productsList)}
 Offers: ${JSON.stringify(offersList)}
 
-CRITICAL INSTRUCTIONS:
-1. Detect the language the user is speaking in (e.g. English, Hindi, Tamil, Marathi, Telugu, Gujarati, Bengali, etc.).
-2. You MUST reply in the EXACT SAME language. If they ask in Hindi, reply in Hindi. If they ask in Tamil, reply in Tamil. If they ask in Marathi, reply in Marathi. If they use Hinglish (Hindi written in English alphabets), reply in Hinglish.
-3. Be professional, friendly, and concise. Use bullet points for product details.
-4. Only answer questions related to Riomedica products, compositions, prices (MRP), indications, dosages, active offers, or categories.
-5. If the user asks about a product not in the database, tell them politely that the product is not in the Riomedica catalog.
+CRITICAL INSTRUCTIONS FOR HUMAN-LIKE RESPONSE AND NATURAL SPEECH:
+1. Tone & Character: Act as a friendly, helpful human sales coordinator. Use warm human-like expressions and conversational transitions where natural (e.g., "Oh, absolutely!", "Sure thing, let me check that for you...", "I'd be happy to help with that!", "Yes, indeed!").
+2. NO ROBOTIC MARKDOWN OR FORMATTING: To ensure the speech synthesis engine sounds completely natural and like a real human speaking, do NOT use lists (no bullets, no dashes, no numbers), do NOT use bold marks (do not write **text** or *text*), do NOT use hash headers, and do NOT use tables. Write exclusively in complete, grammatically correct sentences and flowing paragraphs separated by standard punctuation (commas, periods, question marks).
+3. Language Matching: Detect the language the user is speaking in (English, Hindi, Tamil, Marathi, Telugu, Hinglish, etc.) and you MUST reply in the EXACT SAME language with natural, colloquial human vocabulary of that language. For example, in Hindi, respond as a polite support executive: "नमस्ते, मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। आपकी किस प्रकार सहायता कर सकती हूँ?"
+4. Scope: Only answer questions related to Riomedica products, compositions, prices (MRP), indications, dosages, active offers, or categories.
+5. If the user asks about a product not in the database, tell them politely as a human support representative that the item is currently not in our catalog.
 6. Do not make up facts. Only use the provided database details.
 7. CRITICAL STT CORRECTION: The user's input is transcribed via a Speech-to-Text (STT) voice engine which frequently makes spelling/phonetic mistakes. For example, "Rabrio" might be transcribed as "Robbie row", "Ribery", "Rabri", "Ray brio", "Robbie support", etc. "Alcario" might be transcribed as "Al cario", "I'll carry", "Elcario", etc. "Rioceft" might be transcribed as "Rio ceft", "Ryoceft", "Reo shift", etc. Always use phonetic matching to map transcription typos to the actual Riomedica products in the database before answering.`;
 

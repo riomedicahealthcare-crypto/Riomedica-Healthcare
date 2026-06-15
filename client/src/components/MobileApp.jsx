@@ -1,17 +1,174 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as Icons from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { App as CapApp } from '@capacitor/app';
 import { 
   getProducts, getCategories, getCollections, getOffers, createCollection, 
   deleteCollection, registerUser, loginUser, IMAGE_BASE, getLocalFallbackStatus, 
   resetOfflineDb, sendMobileOtp, verifyMobileOtp, sendEmailOtp, verifyEmailReset,
-  getBranding, getBanners, getMRs, addMR, deleteMR, getVisits, addVisit,
+  getBranding, updateBranding, getBanners, getMRs, addMR, deleteMR, getVisits, addVisit,
   getMROffers, addMROffer, deleteMROffer, updateProduct, sendAiMessage, addOrder,
-  getOrders, updateOrderStatus, deleteOrder
+  getOrders, updateOrderStatus, deleteOrder, changeUserPassword, resetMRPassword,
+  sendGmailOtp, verifyGmailOtp
 } from '../utils';
+import {
+  syncAllToFirebase, pullFullBackupFromFirebase,
+  subscribeToProducts, subscribeToCategories, subscribeToOffers,
+  subscribeToBanners, subscribeToBranding, subscribeToOrders,
+  subscribeToUsers, fbAddOrder, fbSetRegistration, subscribeToConnection
+} from '../firebaseDb';
 import CanvasDraw from './CanvasDraw';
 
+// ─── SWIPE-TO-UNLOCK LANDING BUTTON ─────────────────────────────────────────
+const SwipeButton = ({ onSwipeSuccess }) => {
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startX = useRef(0);
+  const containerRef = useRef(null);
+  const [maxDrag, setMaxDrag] = useState(260);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        setMaxDrag(containerRef.current.clientWidth - 56);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleStart = (clientX) => {
+    setIsDragging(true);
+    startX.current = clientX - dragX;
+  };
+
+  const handleMove = (clientX) => {
+    if (!isDragging) return;
+    let x = clientX - startX.current;
+    if (x < 0) x = 0;
+    if (x > maxDrag) x = maxDrag;
+    setDragX(x);
+  };
+
+  const handleEnd = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    if (dragX >= maxDrag * 0.85) {
+      setDragX(maxDrag);
+      setTimeout(() => {
+        onSwipeSuccess();
+        setDragX(0);
+      }, 150);
+    } else {
+      setDragX(0);
+    }
+  };
+
+  const onTouchStart = (e) => handleStart(e.touches[0].clientX);
+  const onTouchMove = (e) => handleMove(e.touches[0].clientX);
+  const onTouchEnd = () => handleEnd();
+
+  const onMouseDown = (e) => {
+    handleStart(e.clientX);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const onMouseMove = (e) => handleMove(e.clientX);
+  const onMouseUp = () => {
+    handleEnd();
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: 'absolute',
+        bottom: '4.2%',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '88%',
+        maxWidth: '350px',
+        height: '56px',
+        background: '#49832d',
+        borderRadius: '28px',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.25)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        userSelect: 'none',
+        overflow: 'hidden',
+        zIndex: 20
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: `${dragX + 28}px`,
+          background: 'rgba(255,255,255,0.15)',
+          borderRadius: '28px 0 0 28px',
+          pointerEvents: 'none'
+        }}
+      />
+      <span
+        style={{
+          color: '#ffffff',
+          fontWeight: '700',
+          fontSize: '0.85rem',
+          letterSpacing: '0.5px',
+          opacity: Math.max(0.1, 1 - (dragX / maxDrag) * 1.5),
+          transition: isDragging ? 'none' : 'opacity 0.2s ease-out',
+          textAlign: 'center',
+          paddingLeft: '35px',
+          pointerEvents: 'none'
+        }}
+      >
+        Let's Build a Healthier Tomorrow Together
+      </span>
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onMouseDown={onMouseDown}
+        style={{
+          position: 'absolute',
+          left: '5px',
+          width: '46px',
+          height: '46px',
+          background: '#ffffff',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'grab',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+          transform: `translateX(${dragX}px)`,
+          transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+          zIndex: 25
+        }}
+      >
+        <Icons.ArrowRight size={22} style={{ color: '#49832d', pointerEvents: 'none' }} />
+      </div>
+    </div>
+  );
+};
+
 export default function MobileApp() {
+  // Theme State
+  const [theme, setTheme] = useState(() => localStorage.getItem('mobile-theme') || 'dark');
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    localStorage.setItem('mobile-theme', nextTheme);
+  };
+
   // Authentication & View States
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loggedInUser, setLoggedInUser] = useState(null);
@@ -108,7 +265,15 @@ export default function MobileApp() {
   const [visitFormError, setVisitFormError] = useState('');
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
 
-  const [authView, setAuthView] = useState('login'); // login, signup, pending
+  const [authView, setAuthView] = useState('landing'); // landing, login, signup, pending
+  const [showGetStartedSheet, setShowGetStartedSheet] = useState(false);
+  const [showLoginOtpModal, setShowLoginOtpModal] = useState(false);
+  const [loginOtpCode, setLoginOtpCode] = useState('');
+  const [loginOtpError, setLoginOtpError] = useState('');
+  const [isVerifyingLoginOtp, setIsVerifyingLoginOtp] = useState(false);
+  const [pendingLoginUser, setPendingLoginUser] = useState(null);
+  const [pendingUserRole, setPendingUserRole] = useState('');
+  const [mockLoginSmsHint, setMockLoginSmsHint] = useState('');
   
   // Login Form States
   const [loginUsername, setLoginUsername] = useState('');
@@ -176,17 +341,138 @@ export default function MobileApp() {
   const [aiMessages, setAiMessages] = useState([
     {
       role: 'model',
-      text: "Hello! I am Riobot, your Riomedica AI Assistant.\nI can help you search our catalog, check prices (MRP), active offers, compositions, and dosages.\n\nType in Hindi, English, Tamil, Marathi, or any Indian language, and I will reply in the same language! How can I help you today?",
+      text: "Hello! This is Priya from the Riomedica team. I am here to assist you just like a real support representative. I can help you search our catalog, check prices (MRP), active offers, chemical compositions, or standard dosages.\n\nFeel free to type in English, Hindi, Tamil, Marathi, or any Indian language, and I will reply to you in the same language. How can I help you today?",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
   const [isAiTyping, setIsAiTyping] = useState(false);
   const chatMessagesEndRef = React.useRef(null);
+  const recognitionRef = React.useRef(null);
   
   // Voice Capabilities States
   const [isAiVoiceEnabled, setIsAiVoiceEnabled] = useState(true);
   const [isAiListening, setIsAiListening] = useState(false);
-  const recognitionRef = React.useRef(null);
+
+  // Wake Word & Hands-free Loop States
+  const [isWakeWordActive, setIsWakeWordActive] = useState(true);
+  const [isContinuousTalkEnabled, setIsContinuousTalkEnabled] = useState(false);
+  const [speechLangCode, setSpeechLangCode] = useState('en-IN');
+  
+  const wakeWordRecRef = React.useRef(null);
+  const activeUtterancesCountRef = React.useRef(0);
+  const isContinuousTalkEnabledRef = React.useRef(false);
+  const isAiChatOpenRef = React.useRef(false);
+  const isAiListeningRef = React.useRef(false);
+
+  React.useEffect(() => { isContinuousTalkEnabledRef.current = isContinuousTalkEnabled; }, [isContinuousTalkEnabled]);
+  React.useEffect(() => { isAiChatOpenRef.current = isAiChatOpen; }, [isAiChatOpen]);
+  React.useEffect(() => { isAiListeningRef.current = isAiListening; }, [isAiListening]);
+  // Password Change States
+  const [changeOldPassword, setChangeOldPassword] = useState('');
+  const [changeNewPassword, setChangeNewPassword] = useState('');
+  const [changeConfirmPassword, setChangeConfirmPassword] = useState('');
+  const [changePasswordError, setChangePasswordError] = useState('');
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const handleChangePasswordSubmit = async (e) => {
+    e.preventDefault();
+    if (!changeOldPassword || !changeNewPassword || !changeConfirmPassword) {
+      setChangePasswordError('All password fields are required.');
+      return;
+    }
+    if (changeNewPassword !== changeConfirmPassword) {
+      setChangePasswordError('New passwords do not match.');
+      return;
+    }
+    setChangePasswordError('');
+    setChangePasswordSuccess('');
+    setIsChangingPassword(true);
+    try {
+      await changeUserPassword(loggedInUser.id, changeOldPassword, changeNewPassword);
+      setChangePasswordSuccess('Password updated successfully!');
+      setChangeOldPassword('');
+      setChangeNewPassword('');
+      setChangeConfirmPassword('');
+    } catch (err) {
+      setChangePasswordError(err.message || 'Failed to update password.');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleResetMrPassword = async (mrId, name) => {
+    const newPassword = window.prompt(`Enter new password for MR "${name}":`);
+    if (newPassword === null) return;
+    if (newPassword.trim() === '') {
+      alert('Password cannot be empty.');
+      return;
+    }
+
+    try {
+      await resetMRPassword(mrId, newPassword.trim());
+      alert(`Password for MR "${name}" reset successfully!`);
+      loadData();
+    } catch (err) {
+      alert(err.message || 'Failed to reset MR password.');
+    }
+  };
+
+  // Background Voice Wake-Word Listener Effect
+  useEffect(() => {
+    if (!isLoggedIn || currentView !== 'dashboard' || isAiChatOpen || !isWakeWordActive) {
+      if (wakeWordRecRef.current) {
+        try { wakeWordRecRef.current.stop(); } catch (e) {}
+        wakeWordRecRef.current = null;
+      }
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    let localWakeRec = null;
+    try {
+      localWakeRec = new SpeechRecognition();
+      localWakeRec.continuous = true;
+      localWakeRec.interimResults = false;
+      localWakeRec.lang = 'en-IN'; // Good for Hinglish name recognition
+
+      localWakeRec.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
+        console.log("Wake word background recognition:", transcript);
+        if (transcript.includes('priya') || transcript.includes('प्रिया') || transcript.includes('பிரியா')) {
+          console.log("Wake word detected! Opening Priya Chat overlay.");
+          setIsAiChatOpen(true);
+          setIsContinuousTalkEnabled(true); // Automatically turn on hands-free mode
+          
+          // Small delay to allow chat overlay slide animation, then start listening
+          setTimeout(() => {
+            startSpeechRecognition();
+          }, 800);
+        }
+      };
+
+      localWakeRec.onend = () => {
+        // Auto-restart if we are still active and closed
+        if (isLoggedIn && currentView === 'dashboard' && !isAiChatOpenRef.current && isWakeWordActive) {
+          try { localWakeRec.start(); } catch (e) {}
+        }
+      };
+
+      wakeWordRecRef.current = localWakeRec;
+      localWakeRec.start();
+    } catch (err) {
+      console.warn("Failed to start background wake word recognition:", err);
+    }
+
+    return () => {
+      if (wakeWordRecRef.current) {
+        try { wakeWordRecRef.current.stop(); } catch (e) {}
+        wakeWordRecRef.current = null;
+      }
+    };
+  }, [isLoggedIn, currentView, isAiChatOpen, isWakeWordActive]);
 
   // Helper to dynamically detect Indian language in AI text response
   const detectLanguage = (text) => {
@@ -213,6 +499,7 @@ export default function MobileApp() {
 
     if (shouldCancel) {
       window.speechSynthesis.cancel(); // Stop any currently speaking voice
+      activeUtterancesCountRef.current = 0;
     }
 
     if (!isAiVoiceEnabled) return;
@@ -272,11 +559,32 @@ export default function MobileApp() {
     utterance.pitch = 1.15; // Set higher pitch for a beautiful female voice tone
     utterance.rate = 0.95;  // Slightly slower rate for clear B2B pronunciation
 
-    utterance.onerror = (errEvent) => {
-      console.error("Speech synthesis error event:", errEvent);
+    // Utterance lifecycle callbacks for continuous hands-free talking loop
+    utterance.onstart = () => {
+      // If microphone is currently recording, stop it immediately to prevent echo
+      if (isAiListeningRef.current) {
+        stopSpeechRecognition();
+      }
     };
 
-    console.log(`TTS speaking: "${cleanText}" | Lang: ${utterance.lang} | Voice: ${voice ? voice.name : 'Default'}`);
+    const handleSpeechEnded = () => {
+      activeUtterancesCountRef.current = Math.max(0, activeUtterancesCountRef.current - 1);
+      if (activeUtterancesCountRef.current === 0) {
+        console.log("Priya finished speaking. Checking if hands-free is enabled:", isContinuousTalkEnabledRef.current);
+        if (isContinuousTalkEnabledRef.current && isAiChatOpenRef.current && !isAiListeningRef.current) {
+          startSpeechRecognition();
+        }
+      }
+    };
+
+    utterance.onend = handleSpeechEnded;
+    utterance.onerror = (errEvent) => {
+      console.error("Speech synthesis error event:", errEvent);
+      handleSpeechEnded();
+    };
+
+    activeUtterancesCountRef.current += 1;
+    console.log(`TTS speaking: "${cleanText}" | Lang: ${utterance.lang} | Active Queue Count: ${activeUtterancesCountRef.current}`);
     window.speechSynthesis.speak(utterance);
   };
 
@@ -290,12 +598,13 @@ export default function MobileApp() {
 
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
+      activeUtterancesCountRef.current = 0;
     }
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true; // Fix: continuous listening so user isn't cut off early
     recognition.interimResults = true; // Fix: show real-time transcription feedback
-    recognition.lang = 'en-IN'; // Default to Indian English
+    recognition.lang = speechLangCode; // Use dynamic speech language code selected by user
 
     let silenceTimer = null;
     let finalTranscript = '';
@@ -316,6 +625,14 @@ export default function MobileApp() {
     recognition.onend = () => {
       setIsAiListening(false);
       if (silenceTimer) clearTimeout(silenceTimer);
+
+      // Auto-restart recognition if continuous talking is active, chat is open, and Priya is not speaking
+      setTimeout(() => {
+        if (isContinuousTalkEnabledRef.current && isAiChatOpenRef.current && !isAiListeningRef.current && activeUtterancesCountRef.current === 0) {
+          console.log("Auto-restarting speech recognition in loop");
+          try { recognition.start(); } catch (e) {}
+        }
+      }, 300);
     };
 
     recognition.onresult = (event) => {
@@ -382,9 +699,9 @@ export default function MobileApp() {
     if (isAiChatOpen) {
       let greetingText = '';
       if (userRole === 'mr') {
-        greetingText = `Hello ${loggedInUser?.ownerName || 'Representative'}! I am Riobot, your Riomedica AI Assistant. How can I help you today?`;
+        greetingText = `Hello ${loggedInUser?.ownerName || 'Representative'}! This is Priya from the Riomedica team. How can I help you today?`;
       } else {
-        greetingText = `Hello ${loggedInUser?.ownerName || 'Partner'} from ${loggedInUser?.firmName || 'Riomedica'}! I am Riobot, your Riomedica AI Assistant. How can I help you today?`;
+        greetingText = `Hello ${loggedInUser?.ownerName || 'Partner'} from ${loggedInUser?.firmName || 'Riomedica'}! This is Priya from the Riomedica team. How can I help you today?`;
       }
 
       setAiMessages(prev => {
@@ -594,7 +911,13 @@ export default function MobileApp() {
         let reply = "";
         let detectedLang = "en";
 
-        if (lowerMsg.includes('kya') || lowerMsg.includes('hai') || lowerMsg.includes('batao') || lowerMsg.includes('daam') || lowerMsg.includes('namaste')) {
+        if (speechLangCode === 'hi-IN') {
+          detectedLang = "hi";
+        } else if (speechLangCode === 'ta-IN') {
+          detectedLang = "ta";
+        } else if (speechLangCode === 'mr-IN') {
+          detectedLang = "mr";
+        } else if (lowerMsg.includes('kya') || lowerMsg.includes('hai') || lowerMsg.includes('batao') || lowerMsg.includes('daam') || lowerMsg.includes('namaste')) {
           detectedLang = "hi";
         } else if (lowerMsg.includes('enna') || lowerMsg.includes('irukku') || lowerMsg.includes('solla') || lowerMsg.includes('vanakkam')) {
           detectedLang = "ta";
@@ -636,39 +959,23 @@ export default function MobileApp() {
         if (matchedProduct) {
           const mrpVal = matchedProduct.mrp ? (String(matchedProduct.mrp).includes('₹') ? matchedProduct.mrp : `₹${matchedProduct.mrp}`) : 'Price on request';
           if (detectedLang === "hi") {
-            reply = `**${matchedProduct.name}** के बारे में जानकारी:\n` +
-                    `• **संरचना (Composition):** ${matchedProduct.composition}\n` +
-                    `• **उपयोग (Indications):** ${matchedProduct.indications || 'सामान्य उपयोग'}\n` +
-                    `• **मूल्य (MRP):** ${mrpVal}\n\n` +
-                    `*(ऑफ़लाइन सिमुलेशन मोड)*`;
+            reply = `नमस्ते, मैं प्रिया हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage || 'चिकित्सक के निर्देशानुसार'} है और इसका एमआरपी ${mrpVal} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
           } else if (detectedLang === "ta") {
-            reply = `**${matchedProduct.name}** தயாரிப்பு विवरण:\n` +
-                    `• **கலவை (Composition):** ${matchedProduct.composition}\n` +
-                    `• **பயன்கள் (Indications):** ${matchedProduct.indications || 'பொதுவான பயன்பாடு'}\n` +
-                    `• **விலை (MRP):** ${mrpVal}\n\n` +
-                    `*(ஆஃப்லைன் சிமுலேஷன் முறை)*`;
+            reply = `வணக்கம், நான் பிரியா பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய விலை ${mrpVal} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
           } else if (detectedLang === "mr") {
-            reply = `**${matchedProduct.name}** बद्दल माहिती:\n` +
-                    `• **संयोजन (Composition):** ${matchedProduct.composition}\n` +
-                    `• **वापर (Indications):** ${matchedProduct.indications || 'सामान्य वापर'}\n` +
-                    `• **किंमत (MRP):** ${mrpVal}\n\n` +
-                    `*(ऑफलाइन सिम्युलेशन मोड)*`;
+            reply = `नमस्कार, मी प्रिया बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याची किंमत ${mrpVal} आहे. तुम्हाला याबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
           } else {
-            reply = `Here are the details for **${matchedProduct.name}**:\n` +
-                    `• **Composition:** ${matchedProduct.composition}\n` +
-                    `• **Indications:** ${matchedProduct.indications || 'General clinical use'}\n` +
-                    `• **MRP:** ${mrpVal}\n\n` +
-                    `*(Offline Simulation Mode)*`;
+            reply = `Hello, this is Priya from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the MRP for this medicine is ${mrpVal}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
           }
         } else {
           if (detectedLang === "hi") {
-            reply = "नमस्ते! मैं रियोबॉट हूँ। आप मुझसे किसी भी ब्रांड (जैसे 'Rabrio 20') के बारे में पूछ सकते हैं।\n\n*(ऑफ़लाइन सिमुलेशन मोड)*";
+            reply = "नमस्ते! मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (ऑफ़लाइन सिमुलेशन मोड)";
           } else if (detectedLang === "ta") {
-            reply = "வணக்கம்! நான் ரியோபாட். நீங்கள் தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம்.\n\n*(ஆஃப்லைன் சிமுலேஷன் முறை)*";
+            reply = "வணக்கம்! நான் பிரியா பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (ஆஃப்லைன் சிமுலேஷன் முறை)";
           } else if (detectedLang === "mr") {
-            reply = "नमस्कार! मी रियोबॉट आहे. तुम्ही मला औषधांबद्दल विचारू शकता.\n\n*(ऑफलाइन सिम्युलेशन मोड)*";
+            reply = "नमस्कार! मी प्रिया बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (ऑफलाइन सिम्युलेशन मोड)";
           } else {
-            reply = "Hello! I am **Riobot**, your Riomedica AI Assistant. Ask me about any of our brands (e.g., 'Tell me about Rabrio 20').\n\n*(Offline Simulation Mode)*";
+            reply = "Hello! This is Priya from the Riomedica customer support team. I am here to help you just like a real support coordinator. Ask me about any of our brands, such as 'Tell me about Rabrio 20'. (Offline Simulation Mode)";
           }
         }
 
@@ -769,9 +1076,22 @@ export default function MobileApp() {
   
   // Offline / Fallback State indicators
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
   const [branding, setBranding] = useState({ companyName: 'RIOMEDICA', tagline: 'Healthcare', logo: '' });
   const [banners, setBanners] = useState([]);
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+
+  // Admin Logo Upload States
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState('');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [logoUploadSuccess, setLogoUploadSuccess] = useState(false);
+
+  // Firebase Sync States
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [firebaseSyncStatus, setFirebaseSyncStatus] = useState(''); // '', 'success', 'error'
+  const [firebaseSyncMsg, setFirebaseSyncMsg] = useState('');
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
 
   // Mobile Direct Product Edit States
   const [isMobileEditModalOpen, setIsMobileEditModalOpen] = useState(false);
@@ -883,10 +1203,128 @@ export default function MobileApp() {
   };
 
   useEffect(() => {
-    loadData();
-    // Poll updates every 10 seconds for real-time additions from Admin Portal
-    const timer = setInterval(loadData, 10000);
-    return () => clearInterval(timer);
+    // Load non-Firebase data once (MRs, visits, MR offers, collections)
+    const loadLocalData = async () => {
+      try {
+        const colls   = await getCollections();
+        const team    = await getMRs();
+        const visits  = await getVisits();
+        const teamOff = await getMROffers();
+        const ords    = await getOrders().catch(() => []);
+        setCollections(colls || []);
+        setMrs(team || []);
+        setDoctorVisits(visits || []);
+        setMrOffers(teamOff || []);
+        setOrders(ords || []);
+        setIsOfflineMode(getLocalFallbackStatus());
+      } catch (err) {
+        console.error('Failed loading local data', err);
+      }
+    };
+    loadLocalData();
+
+    // 🔥 Firebase real-time listeners — rep app auto-updates when admin makes changes
+    const unsubProducts   = subscribeToProducts((data)   => { 
+      if (data && data.length > 0) {
+        setProducts(data); 
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.products = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+    const unsubCategories = subscribeToCategories((data) => { 
+      if (data && data.length > 0) {
+        setCategories(data); 
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.categories = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+    const unsubOffers     = subscribeToOffers((data)     => { 
+      if (data) {
+        setOffers(data); 
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.offers = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+    const unsubBanners    = subscribeToBanners((data)    => { 
+      if (data) {
+        setBanners(data); 
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.banners = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+    const unsubBranding   = subscribeToBranding((data)   => { 
+      if (data) {
+        setBranding(data); 
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.branding = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+    const unsubOrders     = subscribeToOrders((data)     => { 
+      if (data) {
+        setOrders(data); 
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.orders = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+    const unsubUsers      = subscribeToUsers((data)      => { 
+      if (data) {
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.registrations = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      } 
+    });
+
+    const unsubConnection = subscribeToConnection((isConnected) => {
+      setIsFirebaseConnected(isConnected);
+    });
+
+    // Fallback: if Firebase has no data yet, load from local server
+    const fallbackTimer = setTimeout(async () => {
+      try {
+        const prods = await getProducts();
+        const cats  = await getCategories();
+        const offs  = await getOffers();
+        const ban   = await getBanners();
+        const brand = await getBranding();
+        if (prods?.length) setProducts(prods);
+        if (cats?.length) setCategories(cats);
+        if (offs?.length) setOffers(offs);
+        if (ban?.length) setBanners(ban);
+        if (brand) setBranding(brand);
+      } catch (e) { /* server offline — Firebase is the source of truth */ }
+    }, 2000);
+
+    return () => {
+      unsubProducts();
+      unsubCategories();
+      unsubOffers();
+      unsubBanners();
+      unsubBranding();
+      unsubOrders();
+      unsubUsers();
+      unsubConnection();
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   // Sync offline status state when API calls run
@@ -899,6 +1337,106 @@ export default function MobileApp() {
     setCurrentBannerIndex(0);
   }, [banners]);
 
+  // Handle native back button press
+  useEffect(() => {
+    if (!(window.Capacitor && window.Capacitor.isNativePlatform())) return;
+
+    const handleBackButton = async () => {
+      // 1. If any modal, drawer, or temporary overlay is open, close/revert it first
+      if (presentationMode) {
+        setPresentationMode(false);
+        return;
+      }
+      if (showGetStartedSheet) {
+        setShowGetStartedSheet(false);
+        return;
+      }
+      if (showLoginOtpModal) {
+        setShowLoginOtpModal(false);
+        return;
+      }
+      if (isCartOpen) {
+        setIsCartOpen(false);
+        return;
+      }
+      if (isAiChatOpen) {
+        setIsAiChatOpen(false);
+        return;
+      }
+      if (isVisitModalOpen) {
+        setIsVisitModalOpen(false);
+        return;
+      }
+      if (isMobileEditModalOpen) {
+        setIsMobileEditModalOpen(false);
+        return;
+      }
+      if (selectedProduct) {
+        setSelectedProduct(null);
+        return;
+      }
+      if (showWelcomePopup) {
+        setShowWelcomePopup(false);
+        return;
+      }
+      if (showLaunchPopup) {
+        setShowLaunchPopup(false);
+        return;
+      }
+      if (showMobileOtpModal) {
+        setShowMobileOtpModal(false);
+        return;
+      }
+      if (isAddingMrOffer) {
+        setIsAddingMrOffer(false);
+        return;
+      }
+      if (isAddingMr) {
+        setIsAddingMr(false);
+        return;
+      }
+      if (isNewDoctorMode) {
+        setIsNewDoctorMode(false);
+        return;
+      }
+
+      // 2. If logged out and on a sub-view of the auth flow (signup, forgot-password, pending, login), return to landing
+      if (!isLoggedIn && authView !== 'landing') {
+        setAuthView('landing');
+        setForgotStep(1);
+        return;
+      }
+
+      // 3. If viewing a sub-screen or not on the dashboard home tab, return to dashboard home tab
+      if (isLoggedIn && (currentView !== 'dashboard' || activeTab !== 'home')) {
+        setCurrentView('dashboard');
+        setActiveTab('home');
+        return;
+      }
+
+      // 4. If on dashboard home or on landing welcome screen, prompt app exit
+      if (isLoggedIn || (!isLoggedIn && authView === 'landing')) {
+        const confirmExit = window.confirm("Do you really want to exit the application?");
+        if (confirmExit) {
+          CapApp.exitApp();
+        }
+      }
+    };
+
+    const backButtonListener = CapApp.addListener('backButton', () => {
+      handleBackButton();
+    });
+
+    return () => {
+      backButtonListener.then(l => l.remove());
+    };
+  }, [
+    isLoggedIn, authView, currentView, activeTab, isCartOpen, isAiChatOpen, 
+    isVisitModalOpen, isMobileEditModalOpen, selectedProduct, showWelcomePopup, 
+    showLaunchPopup, showMobileOtpModal, isAddingMrOffer, isAddingMr, 
+    isNewDoctorMode, presentationMode, showGetStartedSheet, showLoginOtpModal
+  ]);
+
   // Slideshow auto-advance timer for promotional banners
   useEffect(() => {
     if (banners.length <= 1) return;
@@ -908,8 +1446,23 @@ export default function MobileApp() {
     return () => clearInterval(interval);
   }, [banners]);
 
-  // Handle clicking on banner links to navigate to appropriate tab
-  const handleBannerClick = (linkUrl) => {
+  // Handle clicking on banner links to navigate to appropriate tab or open linked product
+  const handleBannerClick = (banner) => {
+    if (!banner) return;
+    
+    // 1. If it has a linkProductId, open the product details view dynamically
+    if (banner.linkProductId) {
+      const prod = products.find(p => p.id === banner.linkProductId);
+      if (prod) {
+        setSelectedProduct(prod);
+        setCurrentView('product-detail');
+        setActiveDetailTab('packshot');
+        return;
+      }
+    }
+
+    // 2. Otherwise fallback to linkUrl mapping
+    const linkUrl = banner.linkUrl;
     if (!linkUrl) return;
     const path = linkUrl.toLowerCase().trim();
     if (path.includes('offer')) {
@@ -943,13 +1496,68 @@ export default function MobileApp() {
       if (res.role !== 'admin' && res.role !== loginRoleTab) {
         throw new Error(`Invalid credentials for a ${loginRoleTab === 'mr' ? 'Medical Representative' : 'Franchise Partner'}.`);
       }
+
+      if (res.role === 'admin') {
+        setIsLoggedIn(true);
+        setLoggedInUser(res.user);
+        setUserRole(res.role || 'distributor');
+        setActiveTab('home');
+        setCurrentView('dashboard');
+        setWhatsappNumber('919999999999');
+        // ── Show Welcome Popup ──
+        setShowWelcomePopup(true);
+
+        // ── Show New Launch Popup after 3.2s ──
+        setTimeout(async () => {
+          try {
+            const allProds = await getProducts();
+            const newLaunches = (allProds || []).filter(p => p.isNewLaunch);
+            if (newLaunches.length > 0) {
+              setLaunchPopupProduct(newLaunches[0]);
+              setShowLaunchPopup(true);
+            }
+          } catch (_) { /* silent fail */ }
+        }, 3200);
+      } else {
+        // Post-login secure OTP verification flow via Gmail SMTP
+        if (!res.user.email) {
+          throw new Error('Your account does not have a registered email address. Please contact Admin.');
+        }
+        const otpRes = await sendGmailOtp(res.user.email, 'login');
+        setPendingLoginUser(res.user);
+        setPendingUserRole(res.role);
+        setMockLoginSmsHint(otpRes.mockOtp || '123456');
+        setLoginOtpCode('');
+        setLoginOtpError('');
+        setShowLoginOtpModal(true);
+      }
+
+    } catch (err) {
+      setLoginError(err.message || 'Invalid username or password.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Verify Gmail OTP and complete login
+  const handleLoginOtpVerify = async (e) => {
+    e.preventDefault();
+    if (!loginOtpCode || !pendingLoginUser) return;
+
+    setLoginOtpError('');
+    setIsVerifyingLoginOtp(true);
+
+    try {
+      await verifyGmailOtp(pendingLoginUser.email, loginOtpCode);
+      
       setIsLoggedIn(true);
-      setLoggedInUser(res.user);
-      setUserRole(res.role || 'distributor');
+      setLoggedInUser(pendingLoginUser);
+      setUserRole(pendingUserRole || 'distributor');
       setActiveTab('home');
       setCurrentView('dashboard');
-      if (res.role === 'mr' && res.user?.distributorMobile) {
-        setWhatsappNumber(res.user.distributorMobile);
+      
+      if (pendingUserRole === 'mr' && pendingLoginUser.distributorMobile) {
+        setWhatsappNumber(pendingLoginUser.distributorMobile);
       } else {
         setWhatsappNumber('919999999999');
       }
@@ -957,7 +1565,7 @@ export default function MobileApp() {
       // ── Show Welcome Popup ──
       setShowWelcomePopup(true);
 
-      // ── Show New Launch Popup after 3.2s (if products with isNewLaunch exist) ──
+      // ── Show New Launch Popup after 3.2s ──
       setTimeout(async () => {
         try {
           const allProds = await getProducts();
@@ -969,10 +1577,13 @@ export default function MobileApp() {
         } catch (_) { /* silent fail */ }
       }, 3200);
 
+      setShowLoginOtpModal(false);
+      setPendingLoginUser(null);
+      setPendingUserRole('');
     } catch (err) {
-      setLoginError(err.message || 'Invalid username or password.');
+      setLoginOtpError(err.message || 'OTP verification failed. Please try again.');
     } finally {
-      setIsLoggingIn(false);
+      setIsVerifyingLoginOtp(false);
     }
   };
 
@@ -1200,7 +1811,15 @@ export default function MobileApp() {
         formData.append('pan', regPanFile);
       }
 
-      await registerUser(formData);
+      const registered = await registerUser(formData);
+      try {
+        if (registered && registered.id) {
+          await fbSetRegistration(registered.id, registered);
+          console.log('[Register] Registration auto-synced to Firebase');
+        }
+      } catch (fbErr) {
+        console.warn('[Register] Firebase sync skipped:', fbErr.message);
+      }
       setShowMobileOtpModal(false);
       setAuthView('pending');
     } catch (err) {
@@ -1377,48 +1996,103 @@ export default function MobileApp() {
           display: 'flex',
           flexDirection: 'column',
           height: '100%',
-          padding: '24px',
-          background: 'linear-gradient(180deg, #090d16 0%, #06090e 100%)',
-          color: '#fff',
-          overflowY: 'auto'
+          padding: authView === 'landing' ? '0' : '24px',
+          background: authView === 'landing' ? '#fff' : 'linear-gradient(180deg, #090d16 0%, #06090e 100%)',
+          color: authView === 'landing' ? '#334155' : '#fff',
+          overflowY: 'auto',
+          position: 'relative'
         }}
       >
         {/* Header branding */}
-        <div style={{ textAlign: 'center', marginTop: '20px', marginBottom: '24px' }}>
-          <div 
+        {authView !== 'landing' && (
+          <div style={{ textAlign: 'center', marginTop: '20px', marginBottom: '24px' }}>
+            <div 
+              style={{
+                width: '60px',
+                height: '60px',
+                background: '#fff',
+                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 12px auto',
+                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.2)',
+                overflow: 'hidden'
+              }}
+            >
+              {branding.logo ? (
+                <img src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              )}
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.4rem', textTransform: 'uppercase' }}>
+              {branding.companyName || 'RIOMEDICA'}
+            </h2>
+            <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase' }}>
+              {branding.tagline || 'Healthcare'}
+            </span>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '6px' }}>
+              Interactive Detailing & B2B Portal
+            </p>
+          </div>
+        )}
+
+        {/* VIEW: Welcome Landing View - Full Screen Image */}
+        {authView === 'landing' && (
+          <div
             style={{
-              width: '60px',
-              height: '60px',
-              background: branding.logo ? '#fff' : 'linear-gradient(135deg, #10b981, #34d399)',
-              borderRadius: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 12px auto',
-              boxShadow: '0 8px 20px rgba(16, 185, 129, 0.4)',
-              overflow: 'hidden'
+              position: 'relative',
+              width: '100%',
+              height: '100%',
+              overflow: 'hidden',
+              animation: 'fadeIn 0.4s ease-out'
             }}
           >
-            {branding.logo ? (
-              <img src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <Icons.HeartPulse size={34} color="#fff" />
-            )}
+            {/* Full-screen background image */}
+            <img
+              src="/landing-bg.jpg"
+              alt="Riomedica Landing"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center top',
+                display: 'block'
+              }}
+            />
+
+            {/* Interactive Swipe-to-Unlock button overlaying the pre-rendered button */}
+            <SwipeButton onSwipeSuccess={() => setShowGetStartedSheet(true)} />
           </div>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.4rem', textTransform: 'uppercase' }}>
-            {branding.companyName || 'RIOMEDICA'}
-          </h2>
-          <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase' }}>
-            {branding.tagline || 'Healthcare'}
-          </span>
-          <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '6px' }}>
-            Interactive Detailing & B2B Portal
-          </p>
-        </div>
+        )}
 
         {/* VIEW: Login View */}
         {authView === 'login' && (
           <div style={{ animation: 'fadeIn 0.25s ease-out', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            
+            {/* Back to Welcome Link */}
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '-4px' }}>
+              <button 
+                type="button"
+                onClick={() => setAuthView('landing')} 
+                style={{ 
+                  background: 'transparent', 
+                  border: 'none', 
+                  color: 'var(--text-mobile-secondary)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  fontSize: '0.8rem', 
+                  fontWeight: '600', 
+                  cursor: 'pointer',
+                  padding: '4px 0',
+                  outline: 'none'
+                }}
+              >
+                <Icons.ArrowLeft size={16} /> Back to Welcome
+              </button>
+            </div>
             
             {/* Sliding Role Tab Switcher */}
             <div style={{
@@ -1555,16 +2229,6 @@ export default function MobileApp() {
                     Register Your Firm
                   </button>
                 </div>
-              )}
-            </div>
-            
-            {/* Quick Helper Credentials Tip */}
-            <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)', borderRadius: '12px', padding: '12px', fontSize: '0.75rem', color: '#94a3b8', display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <Icons.Info size={16} color="#10b981" style={{ flexShrink: 0 }} />
-              {loginRoleTab === 'mr' ? (
-                <span><strong>Testing Tip:</strong> Use rep credentials (e.g. <strong>`rohan_mr`</strong> / <strong>`password123`</strong>) or log in as Admin with <strong>`admin`</strong> / <strong>`admin123`</strong>!</span>
-              ) : (
-                <span><strong>Testing Tip:</strong> Use B2B credentials (<strong>`poojapharma`</strong> / <strong>`password123`</strong>) or log in as Admin with <strong>`admin`</strong> / <strong>`admin123`</strong>!</span>
               )}
             </div>
           </div>
@@ -1870,12 +2534,6 @@ export default function MobileApp() {
                       </div>
                     )}
 
-                    {/* Mock Email Hint Banner */}
-                    {mockEmailHint && (
-                      <div style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px dashed rgba(16, 185, 129, 0.3)', padding: '10px', borderRadius: '8px', color: '#10b981', fontWeight: 600 }}>
-                        [MOCK EMAIL] Password Reset OTP is: <strong style={{ textDecoration: 'underline' }}>{mockEmailHint}</strong>
-                      </div>
-                    )}
 
                     <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                       <button 
@@ -1954,7 +2612,157 @@ export default function MobileApp() {
           </div>
         )}
 
-        {/* --- GLASSMORPHIC MOBILE OTP VERIFICATION MODAL --- */}
+        {/* --- BOTTOM SHEET SELECTOR FOR GETTING STARTED --- */}
+        {showGetStartedSheet && (
+          <div
+            onClick={() => setShowGetStartedSheet(false)}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(9, 13, 22, 0.65)',
+              backdropFilter: 'blur(10px)',
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-end',
+              animation: 'fadeIn 0.3s ease-out'
+            }}
+          >
+            {/* Sheet Body */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'rgba(20, 30, 48, 0.95)',
+                borderTop: '1px solid rgba(16, 185, 129, 0.25)',
+                borderRadius: '24px 24px 0px 0px',
+                padding: '28px 24px 40px 24px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '20px',
+                boxShadow: '0 -10px 40px rgba(0,0,0,0.5)',
+                animation: 'slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+                color: '#fff'
+              }}
+            >
+              {/* Handle Bar */}
+              <div
+                style={{
+                  width: '40px',
+                  height: '5px',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  borderRadius: '3px',
+                  margin: '0 auto 8px auto'
+                }}
+              />
+
+              {/* Header Content */}
+              <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                <div 
+                  style={{
+                    width: '56px',
+                    height: '56px',
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#10b981',
+                    margin: '0 auto 12px auto',
+                    border: '1px solid rgba(16, 185, 129, 0.3)'
+                  }}
+                >
+                  <Icons.Activity size={26} />
+                </div>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 800, color: '#fff', marginBottom: '6px', lineHeight: 1.3 }}>
+                  Login &amp; Signup as Franchise Partner
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-mobile-secondary)', maxWidth: '280px', margin: '0 auto' }}>
+                  Sign in to your existing account or register your firm as a new Riomedica franchise partner
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Login Button */}
+                <button
+                  onClick={() => {
+                    setShowGetStartedSheet(false);
+                    setAuthView('login');
+                  }}
+                  style={{
+                    width: '100%',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    fontSize: '0.9rem',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <Icons.LogIn size={18} /> Sign In to Portal
+                </button>
+
+                {/* Register Button */}
+                <button
+                  onClick={() => {
+                    setShowGetStartedSheet(false);
+                    setAuthView('signup');
+                  }}
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    color: '#fff',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    fontSize: '0.9rem',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <Icons.UserPlus size={18} /> Register Your Firm
+                </button>
+
+                {/* Close Button */}
+                <button
+                  onClick={() => setShowGetStartedSheet(false)}
+                  style={{
+                    width: '100%',
+                    background: 'transparent',
+                    color: 'var(--text-mobile-secondary)',
+                    border: 'none',
+                    borderRadius: '12px',
+                    padding: '12px',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    marginTop: '4px'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- GLASSMORPHIC EMAIL OTP VERIFICATION MODAL (REGISTRATION) --- */}
         {showMobileOtpModal && (
           <div 
             style={{
@@ -2001,16 +2809,16 @@ export default function MobileApp() {
                   margin: '0 auto'
                 }}
               >
-                <Icons.Smartphone size={28} />
+                <Icons.Mail size={28} />
               </div>
-
+ 
               <div>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 800 }}>Verify Mobile Number</h3>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 800 }}>Verify Email Address</h3>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-mobile-secondary)', marginTop: '6px', lineHeight: '1.4' }}>
-                  A 6-digit verification code has been sent to your mobile <strong>{regMobile}</strong>.
+                  A 6-digit verification code has been sent to your email <strong>{regEmail}</strong>.
                 </p>
               </div>
-
+ 
               <form onSubmit={handleVerifyMobileAndRegister} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div className="auth-input-container">
                   <Icons.Key size={18} />
@@ -2024,20 +2832,14 @@ export default function MobileApp() {
                     required
                   />
                 </div>
-
+ 
                 {regMobileOtpError && (
                   <div style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 600 }}>
                     {regMobileOtpError}
                   </div>
                 )}
-
-                {/* Mock SMS Hint Banner */}
-                {mockSmsHint && (
-                  <div style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px dashed rgba(16, 185, 129, 0.3)', padding: '10px', borderRadius: '8px', color: '#10b981', fontWeight: 600 }}>
-                    [MOCK SMS] OTP Verification Code is: <strong style={{ textDecoration: 'underline' }}>{mockSmsHint}</strong>
-                  </div>
-                )}
-
+ 
+ 
                 <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                   <button 
                     type="button" 
@@ -2054,6 +2856,111 @@ export default function MobileApp() {
                     disabled={isVerifyingMobileOtp}
                   >
                     {isVerifyingMobileOtp ? 'Verifying...' : 'Verify & Submit'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- GLASSMORPHIC EMAIL OTP VERIFICATION MODAL (LOGIN) --- */}
+        {showLoginOtpModal && (
+          <div 
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(9, 13, 22, 0.9)',
+              backdropFilter: 'blur(10px)',
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '24px',
+              animation: 'fadeIn 0.25s ease-out'
+            }}
+          >
+            <div 
+              style={{
+                background: 'rgba(30, 41, 59, 0.7)',
+                border: '1px solid var(--border-mobile)',
+                borderRadius: '16px',
+                padding: '24px',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '20px',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+                animation: 'scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+              }}
+            >
+              <div 
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '2px solid #10b981',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#10b981',
+                  margin: '0 auto'
+                }}
+              >
+                <Icons.Mail size={28} />
+              </div>
+
+              <div>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 800 }}>Verify Sign-In</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-mobile-secondary)', marginTop: '6px', lineHeight: '1.4' }}>
+                  A 6-digit verification code has been sent to your email <strong>{pendingLoginUser?.email}</strong>.
+                </p>
+              </div>
+
+              <form onSubmit={handleLoginOtpVerify} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="auth-input-container">
+                  <Icons.Key size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Enter 6-digit OTP" 
+                    maxLength={6}
+                    value={loginOtpCode}
+                    onChange={(e) => setLoginOtpCode(e.target.value.replace(/\D/g, ''))}
+                    style={{ textAlign: 'center', letterSpacing: '4px', fontSize: '1.1rem', fontWeight: 700 }}
+                    required
+                  />
+                </div>
+
+                {loginOtpError && (
+                  <div style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 600 }}>
+                    {loginOtpError}
+                  </div>
+                )}
+
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                  <button 
+                    type="button" 
+                    className="btn-secondary-mobile"
+                    onClick={() => {
+                      setShowLoginOtpModal(false);
+                      setPendingLoginUser(null);
+                      setPendingUserRole('');
+                    }}
+                    style={{ flex: 1, padding: '12px' }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="btn-primary-mobile"
+                    style={{ flex: 2, padding: '12px' }}
+                    disabled={isVerifyingLoginOtp}
+                  >
+                    {isVerifyingLoginOtp ? 'Verifying...' : 'Verify & Sign In'}
                   </button>
                 </div>
               </form>
@@ -2325,54 +3232,64 @@ export default function MobileApp() {
       return;
     }
 
+    const orderPayload = {
+      firmName: loggedInUser?.firmName || 'Unknown Pharmacy',
+      userName: loggedInUser?.ownerName || 'Anonymous Rep',
+      createdByRole: userRole,
+      distributorId: userRole === 'mr' ? loggedInUser.distributorId : loggedInUser?.id,
+      mrId: userRole === 'mr' ? loggedInUser.id : undefined,
+      status: 'Pending',
+      doctorDetails: userRole === 'mr' ? {
+        name: selectedDoctorName,
+        specialty: doctorSpecialty || 'General',
+        location: doctorLocation || 'N/A'
+      } : undefined,
+      items: activeItems.map(i => ({
+        productId: i.product.id,
+        productName: i.product.name,
+        quantity: i.quantity
+      }))
+    };
+
     try {
-      const orderPayload = {
-        firmName: loggedInUser?.firmName || 'Unknown Pharmacy',
-        userName: loggedInUser?.ownerName || 'Anonymous Rep',
-        createdByRole: userRole,
-        distributorId: userRole === 'mr' ? loggedInUser.distributorId : loggedInUser?.id,
-        mrId: userRole === 'mr' ? loggedInUser.id : undefined,
-        doctorDetails: userRole === 'mr' ? {
-          name: selectedDoctorName,
-          specialty: doctorSpecialty || 'General',
-          location: doctorLocation || 'N/A'
-        } : undefined,
-        items: activeItems.map(i => ({
-          productId: i.product.id,
-          productName: i.product.name,
-          quantity: i.quantity
-        }))
-      };
-      
-      const res = await addOrder(orderPayload);
-      if (res && res.success) {
-        alert(userRole === 'mr' ? "Order submitted to Franchise successfully!" : "Order submitted to Admin successfully!");
-        clearCart();
-        setIsCartOpen(false);
-        setSelectedDoctorName('');
-        setDoctorSpecialty('');
-        setDoctorLocation('');
-        setIsNewDoctorMode(false);
-      } else {
-        throw new Error("Failed to submit order");
-      }
-    } catch (err) {
-      console.error("Order submission error:", err);
-      alert(userRole === 'mr'
-        ? "Order saved! (If server is offline, this order has been successfully recorded for your Franchise Partner)"
-        : "Order saved! (If server is offline, this order has been successfully recorded in offline browser storage)");
+      // 🔥 Write to Firebase first (primary store)
+      await fbAddOrder(orderPayload);
+
+      // Also try local server (non-blocking)
+      addOrder(orderPayload).catch(() => {});
+
+      alert(userRole === 'mr' ? "Order submitted to Franchise successfully!" : "Order submitted to Admin successfully!");
       clearCart();
       setIsCartOpen(false);
       setSelectedDoctorName('');
       setDoctorSpecialty('');
       setDoctorLocation('');
       setIsNewDoctorMode(false);
+    } catch (err) {
+      console.error("Order submission error:", err);
+      // Fallback to local server if Firebase fails
+      try {
+        const res = await addOrder(orderPayload);
+        if (res && res.success) {
+          alert(userRole === 'mr' ? "Order submitted to Franchise successfully!" : "Order submitted to Admin successfully!");
+          clearCart();
+          setIsCartOpen(false);
+          setSelectedDoctorName('');
+          setDoctorSpecialty('');
+          setDoctorLocation('');
+          setIsNewDoctorMode(false);
+        }
+      } catch (localErr) {
+        alert("Order saved locally. Will sync when connection is restored.");
+        clearCart();
+        setIsCartOpen(false);
+      }
     }
   };
 
   // Main UI Wrapper
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className={`mobile-app-container mobile-${theme}`} style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden', background: 'var(--bg-mobile)', color: 'var(--text-mobile-primary)' }}>
       {/* Mobile App Header */}
       <div className="mobile-header">
         <div className="mobile-header-logo">
@@ -2380,24 +3297,60 @@ export default function MobileApp() {
             <img 
               src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} 
               alt="Logo" 
-              style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover' }}
+              style={{ width: '75px', height: '75px', borderRadius: '12px', objectFit: 'contain', background: '#fff', padding: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}
             />
           ) : (
-            <div className="logo-icon">
-              {branding.companyName ? branding.companyName.charAt(0) : 'R'}
-            </div>
+            <img 
+              src="/logo.png" 
+              alt="Logo" 
+              style={{ width: '75px', height: '75px', borderRadius: '12px', objectFit: 'contain', background: '#fff', padding: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}
+            />
           )}
           <div>
             <div className="logo-text" style={{ textTransform: 'uppercase' }}>
               {branding.companyName || 'RIOMEDICA'}
             </div>
-            <span style={{ fontSize: '0.65rem', color: '#10b981', fontWeight: 800, letterSpacing: '1.2px', textTransform: 'uppercase' }}>
+            <span style={{ display: 'block', fontSize: '0.65rem', color: '#10b981', fontWeight: 800, letterSpacing: '1.2px', textTransform: 'uppercase', lineHeight: '1.3', marginTop: '2px' }}>
               {branding.tagline || 'Healthcare'}
             </span>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {isOfflineMode && (
+          {/* Theme Toggle Button */}
+          <button
+            onClick={toggleTheme}
+            style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
+              background: theme === 'dark' ? 'rgba(30, 41, 59, 0.7)' : 'rgba(241, 245, 249, 0.8)',
+              color: theme === 'dark' ? '#f59e0b' : '#475569',
+              border: theme === 'dark' ? '1px solid var(--border-mobile)' : '1px solid var(--border-mobile)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+            title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          >
+            {theme === 'dark' ? <Icons.Sun size={14} /> : <Icons.Moon size={14} />}
+          </button>
+          {isFirebaseConnected ? (
+            <span 
+              style={{
+                fontSize: '0.6rem',
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: '#10b981',
+                border: '1px solid rgba(16,185,129,0.2)',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontWeight: '800'
+              }}
+            >
+              FIREBASE LIVE
+            </span>
+          ) : isOfflineMode ? (
             <span 
               style={{
                 fontSize: '0.6rem',
@@ -2411,7 +3364,7 @@ export default function MobileApp() {
             >
               LOCAL
             </span>
-          )}
+          ) : null}
           {/* Shopping Cart Header Button */}
           {isLoggedIn && (
             <button 
@@ -2500,52 +3453,27 @@ export default function MobileApp() {
               />
             </div>
 
-            {/* Welcome banner custom tailored for logged in Pharmacy Firm */}
+            {/* Banners Slideshow Carousel (Relocated: Product Advertisement Showcase) */}
             <div 
-              style={{
-                background: 'linear-gradient(135deg, #10b981, #06b6d4)',
-                padding: '20px',
-                borderRadius: '20px',
-                color: '#fff',
-                position: 'relative',
-                overflow: 'hidden'
+              style={{ 
+                position: 'relative', 
+                height: '145px', 
+                borderRadius: '20px', 
+                overflow: 'hidden', 
+                boxShadow: '0 8px 24px rgba(16, 185, 129, 0.15)',
+                border: '1px solid var(--border-mobile)',
+                marginBottom: '16px',
+                cursor: (banners.length > 0 && (banners[currentBannerIndex]?.linkUrl || banners[currentBannerIndex]?.linkProductId)) ? 'pointer' : 'default',
+                background: 'linear-gradient(135deg, #06b6d4, #10b981)'
+              }}
+              onClick={() => {
+                if (banners.length > 0) {
+                  handleBannerClick(banners[currentBannerIndex]);
+                }
               }}
             >
-              <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px', display: 'inline-block', marginBottom: '8px' }}>
-                Active Session: {loggedInUser?.firmName || 'Franchise Partner'}
-              </span>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.25rem', marginBottom: '4px' }}>
-                Digital Detailing Suite
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.4, maxWidth: '75%' }}>
-                Select and present our medical portfolio to doctors dynamically. Draw notes on-screen.
-              </p>
-              <Icons.Presentation 
-                size={80} 
-                style={{ 
-                  position: 'absolute', 
-                  right: '-10px', 
-                  bottom: '-10px', 
-                  color: 'rgba(255,255,255,0.15)' 
-                }} 
-              />
-            </div>
-
-            {/* Banners Slideshow Carousel */}
-            {banners.length > 0 && (
-              <div 
-                style={{ 
-                  position: 'relative', 
-                  height: '140px', 
-                  borderRadius: '16px', 
-                  overflow: 'hidden', 
-                  boxShadow: '0 4px 15px rgba(0, 0, 0, 0.05)',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  cursor: banners[currentBannerIndex]?.linkUrl ? 'pointer' : 'default' 
-                }} 
-                onClick={() => handleBannerClick(banners[currentBannerIndex]?.linkUrl)}
-              >
-                {banners.map((banner, idx) => {
+              {banners.length > 0 ? (
+                banners.map((banner, idx) => {
                   const isCurrent = idx === currentBannerIndex;
                   return (
                     <div
@@ -2595,43 +3523,88 @@ export default function MobileApp() {
                       )}
                     </div>
                   );
-                })}
+                })
+              ) : (
+                /* Fallback Default Advertisement Banner when banners are empty */
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', padding: '20px', color: '#fff', position: 'relative' }}>
+                  <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px', display: 'inline-block', marginBottom: '8px', width: 'max-content' }}>
+                    Featured Advertisement
+                  </span>
+                  <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 800, margin: '0 0 4px 0' }}>
+                    Riomedica Healthcare Portfolio
+                  </h4>
+                  <p style={{ fontSize: '0.75rem', margin: 0, color: 'rgba(255,255,255,0.85)', maxWidth: '85%', lineHeight: '1.4' }}>
+                    Explore our range of premium formulations, critical care infusions, and B2B offers.
+                  </p>
+                  <Icons.Award size={80} style={{ position: 'absolute', right: '-10px', bottom: '-10px', color: 'rgba(255,255,255,0.12)' }} />
+                </div>
+              )}
 
-                {/* Custom elegant dot indicators */}
-                {banners.length > 1 && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: '10px',
-                      right: '12px',
-                      display: 'flex',
-                      gap: '6px',
-                      zIndex: 10,
-                    }}
-                  >
-                    {banners.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={(e) => {
-                          e.stopPropagation(); // Avoid triggering banner click redirection
-                          setCurrentBannerIndex(idx);
-                        }}
-                        style={{
-                          width: idx === currentBannerIndex ? '16px' : '6px',
-                          height: '6px',
-                          borderRadius: '3px',
-                          background: idx === currentBannerIndex ? '#fff' : 'rgba(255,255,255,0.5)',
-                          border: 'none',
-                          padding: 0,
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+              {/* Custom dots */}
+              {banners.length > 1 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '10px',
+                    right: '12px',
+                    display: 'flex',
+                    gap: '6px',
+                    zIndex: 10,
+                  }}
+                >
+                  {banners.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentBannerIndex(idx);
+                      }}
+                      style={{
+                        width: idx === currentBannerIndex ? '16px' : '6px',
+                        height: '6px',
+                        borderRadius: '3px',
+                        background: idx === currentBannerIndex ? '#fff' : 'rgba(255,255,255,0.5)',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Welcome banner custom tailored for logged in Pharmacy Firm */}
+            <div 
+              style={{
+                background: 'linear-gradient(135deg, #10b981, #06b6d4)',
+                padding: '20px',
+                borderRadius: '20px',
+                color: '#fff',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+            >
+              <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px', display: 'inline-block', marginBottom: '8px' }}>
+                Active Session: {loggedInUser?.firmName || 'Franchise Partner'}
+              </span>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.25rem', marginBottom: '4px' }}>
+                Digital Detailing Suite
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.4, maxWidth: '75%' }}>
+                Select and present our medical portfolio to doctors dynamically. Draw notes on-screen.
+              </p>
+              <Icons.Presentation 
+                size={80} 
+                style={{ 
+                  position: 'absolute', 
+                  right: '-10px', 
+                  bottom: '-10px', 
+                  color: 'rgba(255,255,255,0.15)' 
+                }} 
+              />
+            </div>
 
             {/* Field Operations Panel */}
             <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -3143,12 +4116,12 @@ export default function MobileApp() {
             {/* List of Registered MRs */}
             <div>
               <h4 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '12px', color: '#fff' }}>
-                Your Active Representatives ({mrs.length})
+                Your Active Representatives ({mrs.filter(mr => mr.distributorId === loggedInUser?.id).length})
               </h4>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {mrs.length > 0 ? (
-                  mrs.map((mr) => (
+                {mrs.filter(mr => mr.distributorId === loggedInUser?.id).length > 0 ? (
+                  mrs.filter(mr => mr.distributorId === loggedInUser?.id).map((mr) => (
                     <div 
                       key={mr.id}
                       style={{
@@ -3168,13 +4141,22 @@ export default function MobileApp() {
                             Territory: {mr.territory}
                           </span>
                         </div>
-                        <button 
-                          onClick={() => handleDeleteMr(mr.id)}
-                          style={{ color: '#ef4444', padding: '4px' }}
-                          title="Revoke Credentials & Delete MR"
-                        >
-                          <Icons.UserX size={18} />
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            onClick={() => handleResetMrPassword(mr.id, mr.name)}
+                            style={{ color: '#10b981', padding: '4px' }}
+                            title="Reset MR Password"
+                          >
+                            <Icons.Key size={18} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteMr(mr.id)}
+                            style={{ color: '#ef4444', padding: '4px' }}
+                            title="Revoke Credentials & Delete MR"
+                          >
+                            <Icons.UserX size={18} />
+                          </button>
+                        </div>
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.75rem', color: 'var(--text-mobile-secondary)', borderTop: '1px dashed rgba(255,255,255,0.05)', paddingTop: '8px' }}>
@@ -4942,10 +5924,237 @@ export default function MobileApp() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-mobile-secondary)' }}>
                   <span>Local Sync Database</span>
-                  <span style={{ color: isOfflineMode ? '#f59e0b' : '#10b981', fontWeight: '700' }}>
-                    {isOfflineMode ? 'LocalStorage (Mock)' : 'Connected API Server'}
+                  <span style={{ color: isFirebaseConnected ? '#10b981' : (isOfflineMode ? '#f59e0b' : '#10b981'), fontWeight: '700' }}>
+                    {isFirebaseConnected ? 'Firebase Realtime Live' : (isOfflineMode ? 'LocalStorage (Mock)' : 'Connected API Server')}
                   </span>
                 </div>
+              </div>
+
+              {/* ── Admin Only: Change Logo ── */}
+              {loggedInUser?.role === 'admin' && (
+                <div
+                  style={{
+                    background: 'var(--bg-mobile-card)',
+                    border: '1px solid rgba(16,185,129,0.35)',
+                    borderRadius: '16px',
+                    padding: '18px',
+                    marginTop: '10px'
+                  }}
+                >
+                  <h5 style={{ fontWeight: 700, marginBottom: '14px', fontSize: '0.85rem', textTransform: 'uppercase', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Icons.Image size={14} /> Change App Logo
+                  </h5>
+
+                  {/* Current logo preview */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px' }}>
+                    <div style={{ width: '64px', height: '64px', borderRadius: '14px', border: '2px solid rgba(16,185,129,0.3)', background: 'rgba(255,255,255,0.05)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {(logoPreview || branding.logo) ? (
+                        <img
+                          src={logoPreview || (branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`)}
+                          alt="Logo"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <Icons.HeartPulse size={28} color="#10b981" />
+                      )}
+                    </div>
+                    <div>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-mobile-primary)', fontWeight: 700 }}>
+                        {logoPreview ? 'New logo selected' : (branding.logo ? 'Current logo' : 'No logo set')}
+                      </p>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-mobile-secondary)', marginTop: '2px' }}>
+                        Recommended: Square image, min 200×200px
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* File picker */}
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '10px',
+                      borderRadius: '10px',
+                      border: '1.5px dashed rgba(16,185,129,0.5)',
+                      background: 'rgba(16,185,129,0.06)',
+                      color: '#10b981',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      marginBottom: '12px'
+                    }}
+                  >
+                    <Icons.Upload size={15} />
+                    {logoFile ? logoFile.name : 'Choose Logo Image'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          setLogoFile(file);
+                          setLogoPreview(URL.createObjectURL(file));
+                          setLogoUploadSuccess(false);
+                        }
+                      }}
+                    />
+                  </label>
+
+                  {/* Upload button */}
+                  {logoFile && (
+                    <button
+                      onClick={async () => {
+                        setIsUploadingLogo(true);
+                        setLogoUploadSuccess(false);
+                        try {
+                          const fd = new FormData();
+                          fd.append('logo', logoFile);
+                          const updated = await updateBranding(fd);
+                          setBranding(prev => ({ ...prev, logo: updated.logo }));
+                          setLogoUploadSuccess(true);
+                          setLogoFile(null);
+                          setLogoPreview('');
+                        } catch (err) {
+                          alert('Failed to upload logo. Please try again.');
+                        } finally {
+                          setIsUploadingLogo(false);
+                        }
+                      }}
+                      disabled={isUploadingLogo}
+                      style={{
+                        width: '100%',
+                        padding: '11px',
+                        borderRadius: '10px',
+                        background: isUploadingLogo ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: '0.82rem',
+                        border: 'none',
+                        cursor: isUploadingLogo ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        boxShadow: '0 4px 12px rgba(16,185,129,0.25)'
+                      }}
+                    >
+                      {isUploadingLogo ? (
+                        <><Icons.Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Uploading...</>
+                      ) : (
+                        <><Icons.CheckCircle size={15} /> Save New Logo</>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Success message */}
+                  {logoUploadSuccess && (
+                    <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Icons.CheckCircle size={14} /> Logo updated successfully!
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div 
+                style={{ 
+                  background: 'var(--bg-mobile-card)', 
+                  border: '1px solid var(--border-mobile)', 
+                  borderRadius: '12px', 
+                  padding: '16px',
+                  marginTop: '10px'
+                }}
+              >
+                <h5 style={{ fontWeight: 700, marginBottom: '12px', fontSize: '0.85rem', textTransform: 'uppercase', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Icons.Key size={14} /> Change Password
+                </h5>
+                <form onSubmit={handleChangePasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-mobile-secondary)', marginBottom: '4px' }}>Old Password</label>
+                    <input 
+                      type="password" 
+                      value={changeOldPassword}
+                      onChange={(e) => setChangeOldPassword(e.target.value)}
+                      placeholder="Enter old password"
+                      style={{
+                        width: '100%',
+                        background: 'var(--bg-mobile-body)',
+                        border: '1px solid var(--border-mobile)',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        fontSize: '0.8rem',
+                        color: 'var(--text-mobile-primary)',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-mobile-secondary)', marginBottom: '4px' }}>New Password</label>
+                    <input 
+                      type="password" 
+                      value={changeNewPassword}
+                      onChange={(e) => setChangeNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      style={{
+                        width: '100%',
+                        background: 'var(--bg-mobile-body)',
+                        border: '1px solid var(--border-mobile)',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        fontSize: '0.8rem',
+                        color: 'var(--text-mobile-primary)',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-mobile-secondary)', marginBottom: '4px' }}>Confirm New Password</label>
+                    <input 
+                      type="password" 
+                      value={changeConfirmPassword}
+                      onChange={(e) => setChangeConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      style={{
+                        width: '100%',
+                        background: 'var(--bg-mobile-body)',
+                        border: '1px solid var(--border-mobile)',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        fontSize: '0.8rem',
+                        color: 'var(--text-mobile-primary)',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  {changePasswordError && (
+                    <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 600 }}>{changePasswordError}</div>
+                  )}
+                  {changePasswordSuccess && (
+                    <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>{changePasswordSuccess}</div>
+                  )}
+
+                  <button 
+                    type="submit" 
+                    disabled={isChangingPassword}
+                    className="btn-primary-mobile"
+                    style={{ 
+                      marginTop: '8px',
+                      padding: '8px 16px',
+                      fontSize: '0.8rem',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      color: '#fff',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {isChangingPassword ? 'Updating...' : 'Update Password'}
+                  </button>
+                </form>
               </div>
 
               {isOfflineMode && (
@@ -5024,7 +6233,7 @@ export default function MobileApp() {
       )}
 
       {/* Floating AI Assistant Chat Button */}
-      {isLoggedIn && currentView === 'dashboard' && !isAiChatOpen && (
+      {isLoggedIn && currentView === 'dashboard' && activeTab !== 'profile' && !isAiChatOpen && (
         <div
           style={{
             position: 'absolute',
@@ -5032,7 +6241,7 @@ export default function MobileApp() {
             right: '24px',
             width: '56px',
             height: '56px',
-            zIndex: 999
+            zIndex: 10500
           }}
         >
           {/* Pulsing Green Halo */}
@@ -5046,7 +6255,7 @@ export default function MobileApp() {
               borderRadius: '50%',
               background: 'rgba(16, 185, 129, 0.2)',
               boxShadow: '0 0 15px rgba(16, 185, 129, 0.5)',
-              zIndex: 998,
+              zIndex: 10499,
               animation: 'pulseRing 2s infinite'
             }}
           />
@@ -5063,14 +6272,14 @@ export default function MobileApp() {
               alignItems: 'center',
               justifyContent: 'center',
               color: '#fff',
-              zIndex: 999,
+              zIndex: 10500,
               border: '1px solid rgba(255,255,255,0.1)',
               cursor: 'pointer',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
-            title="Ask Riobot AI"
+            title="Chat with Priya"
           >
-            <img src="/female_ai_assistant_avatar.png" alt="Riobot Avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+            <img src="/female_ai_assistant_avatar.png" alt="Priya Avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
           </button>
         </div>
       )}
@@ -5085,10 +6294,11 @@ export default function MobileApp() {
             right: 0,
             bottom: 0,
             background: '#090d16',
-            zIndex: 1000,
+            zIndex: 11000,
             display: 'flex',
             flexDirection: 'column',
-            animation: 'fadeIn 0.25s ease-out'
+            animation: 'fadeIn 0.25s ease-out',
+            pointerEvents: 'auto'
           }}
         >
           {/* Header */}
@@ -5106,7 +6316,7 @@ export default function MobileApp() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ position: 'relative', display: 'inline-block', width: '36px', height: '36px' }}>
-                <img src="/female_ai_assistant_avatar.png" alt="Riobot Avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
+                <img src="/female_ai_assistant_avatar.png" alt="Priya Avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
                 <span 
                   style={{
                     position: 'absolute',
@@ -5120,14 +6330,14 @@ export default function MobileApp() {
                     boxShadow: '0 0 8px #10b981',
                     animation: 'pulse 1.2s infinite'
                   }}
-                  title="Riobot Online & Active"
+                  title="Priya Online & Active"
                 />
               </div>
               <div style={{ textAlign: 'left' }}>
-                <h4 style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fff', margin: 0 }}>Riobot AI Assistant</h4>
+                <h4 style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fff', margin: 0 }}>Priya (Support Desk)</h4>
                 <span style={{ fontSize: '0.68rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
-                  Multilingual AI Active
+                  Customer Care Agent Online
                 </span>
               </div>
             </div>
@@ -5156,6 +6366,29 @@ export default function MobileApp() {
               >
                 {isAiVoiceEnabled ? <Icons.Volume2 size={20} /> : <Icons.VolumeX size={20} />}
               </button>
+              
+              {/* Hands-Free Loop Toggle */}
+              <button
+                onClick={() => setIsContinuousTalkEnabled(prev => !prev)}
+                style={{
+                  color: isContinuousTalkEnabled ? '#10b981' : 'var(--text-mobile-muted)',
+                  padding: '6px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title={isContinuousTalkEnabled ? "Continuous Hands-Free Mode: Active" : "Continuous Hands-Free Mode: Muted"}
+              >
+                {isContinuousTalkEnabled ? (
+                  <Icons.RefreshCw size={18} style={{ color: '#10b981', animation: 'spin 3s linear infinite' }} />
+                ) : (
+                  <Icons.RefreshCw size={18} style={{ opacity: 0.4 }} />
+                )}
+              </button>
+
               <button
                 onClick={() => {
                   setIsAiChatOpen(false);
@@ -5264,76 +6497,192 @@ export default function MobileApp() {
           {/* Footer Input */}
           <div
             style={{
-              padding: '16px 20px',
+              padding: '12px 16px 16px 16px',
               background: '#131b2e',
               borderTop: '1px solid var(--border-mobile)',
               display: 'flex',
-              gap: '12px',
-              alignItems: 'center',
-              flexShrink: 0
+              flexDirection: 'column',
+              gap: '10px',
+              flexShrink: 0,
+              pointerEvents: 'auto'
             }}
           >
-            {/* Microphone Trigger Button */}
-            <button
-              onClick={toggleSpeechRecognition}
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
-                background: isAiListening 
-                  ? 'linear-gradient(135deg, #ef4444, #dc2626)' 
-                  : 'rgba(255,255,255,0.03)',
-                border: '1px solid',
-                borderColor: isAiListening ? '#ef4444' : 'var(--border-mobile)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.25s ease',
-                boxShadow: isAiListening ? '0 0 12px rgba(239, 68, 68, 0.4)' : 'none',
-                position: 'relative'
+            {/* Top row: Language selection pills & wake word status */}
+            <div 
+              style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                gap: '8px',
+                width: '100%',
+                fontSize: '0.72rem'
               }}
-              title={isAiListening ? "Listening... Click to stop" : "Speak to type"}
             >
-              {isAiListening ? (
-                <>
-                  <Icons.Mic size={18} style={{ animation: 'pulse 1.2s infinite' }} />
-                  <span 
-                    style={{
-                      position: 'absolute',
-                      top: '-1px',
-                      right: '-1px',
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: '#ef4444',
-                      border: '1px solid #131b2e'
-                    }}
-                  />
-                </>
-              ) : (
-                <Icons.Mic size={18} style={{ color: 'var(--text-mobile-secondary)' }} />
-              )}
-            </button>
+              {/* Language Pills */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-mobile-muted)', fontWeight: 700, marginRight: '2px' }}>Speak:</span>
+                {[
+                  { code: 'en-IN', label: 'EN' },
+                  { code: 'hi-IN', label: 'HI' },
+                  { code: 'ta-IN', label: 'TA' },
+                  { code: 'mr-IN', label: 'MR' }
+                ].map((l) => {
+                  const isActive = speechLangCode === l.code;
+                  return (
+                    <button
+                      key={l.code}
+                      onClick={() => setSpeechLangCode(l.code)}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        background: isActive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.03)',
+                        border: '1px solid',
+                        borderColor: isActive ? '#10b981' : 'rgba(255,255,255,0.1)',
+                        color: isActive ? '#34d399' : 'var(--text-mobile-muted)',
+                        fontSize: '0.65rem',
+                        fontWeight: '800',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {l.label}
+                    </button>
+                  );
+                })}
+              </div>
 
-            <input
-              type="text"
-              placeholder={isAiListening ? "Listening... Speak now!" : "Ask in Hindi, English, Tamil, Marathi..."}
-              value={aiInputText}
-              onChange={e => setAiInputText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSendAiMessage(aiInputText); }}
-              style={{
-                flex: 1,
-                background: 'rgba(255,255,255,0.03)',
-                border: '1px solid var(--border-mobile)',
-                borderRadius: '12px',
-                padding: '12px 16px',
-                color: '#fff',
-                fontSize: '0.85rem',
-                outline: 'none'
-              }}
-            />
+              {/* Wake Word Status Pill */}
+              <div 
+                onClick={() => setIsWakeWordActive(prev => !prev)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '4px',
+                  background: isWakeWordActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.03)',
+                  border: '1px solid',
+                  borderColor: isWakeWordActive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)',
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  color: isWakeWordActive ? '#34d399' : 'var(--text-mobile-muted)',
+                  fontSize: '0.62rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}
+                title={isWakeWordActive ? "Wake Word Listener: Active (Click to disable)" : "Wake Word Listener: Disabled (Click to enable)"}
+              >
+                <span 
+                  style={{ 
+                    width: '6px', 
+                    height: '6px', 
+                    borderRadius: '50%', 
+                    background: isWakeWordActive ? '#10b981' : 'var(--text-mobile-muted)', 
+                    display: 'inline-block',
+                    animation: isWakeWordActive ? 'pulse 1.2s infinite' : 'none'
+                  }} 
+                />
+                Priya Wake
+              </div>
+            </div>
+
+            {/* Bottom row: Mic, Input, Send button */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
+              {/* Microphone Trigger Button */}
+              <button
+                onClick={toggleSpeechRecognition}
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: isAiListening 
+                    ? 'linear-gradient(135deg, #ef4444, #dc2626)' 
+                    : 'rgba(255,255,255,0.03)',
+                  border: '1px solid',
+                  borderColor: isAiListening ? '#ef4444' : 'var(--border-mobile)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.25s ease',
+                  boxShadow: isAiListening ? '0 0 12px rgba(239, 68, 68, 0.4)' : 'none',
+                  position: 'relative',
+                  flexShrink: 0,
+                  pointerEvents: 'auto'
+                }}
+                title={isAiListening ? "Listening... Click to stop" : "Speak to type"}
+              >
+                {isAiListening ? (
+                  <>
+                    <Icons.Mic size={18} style={{ animation: 'pulse 1.2s infinite' }} />
+                    <span 
+                      style={{
+                        position: 'absolute',
+                        top: '-1px',
+                        right: '-1px',
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        background: '#ef4444',
+                        border: '1px solid #131b2e'
+                      }}
+                    />
+                  </>
+                ) : (
+                  <Icons.Mic size={18} style={{ color: 'var(--text-mobile-secondary)' }} />
+                )}
+              </button>
+
+              <input
+                type="text"
+                placeholder={isAiListening ? "Listening... Speak now!" : "Ask in Hindi, English, Tamil, Marathi..."}
+                value={aiInputText}
+                onChange={e => setAiInputText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSendAiMessage(aiInputText); }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border-mobile)',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  color: '#fff',
+                  fontSize: '0.82rem',
+                  outline: 'none',
+                  pointerEvents: 'auto'
+                }}
+              />
+
+              {/* Clickable Send Button */}
+              <button
+                onClick={() => {
+                  if (aiInputText && aiInputText.trim()) {
+                    handleSendAiMessage(aiInputText);
+                  }
+                }}
+                disabled={!aiInputText || !aiInputText.trim() || isAiTyping}
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: (aiInputText && aiInputText.trim() && !isAiTyping) 
+                    ? 'linear-gradient(135deg, #10b981, #059669)' 
+                    : 'rgba(255,255,255,0.02)',
+                  border: '1px solid',
+                  borderColor: (aiInputText && aiInputText.trim() && !isAiTyping) ? '#10b981' : 'rgba(255,255,255,0.05)',
+                  color: (aiInputText && aiInputText.trim() && !isAiTyping) ? '#fff' : 'var(--text-mobile-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: (aiInputText && aiInputText.trim() && !isAiTyping) ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  pointerEvents: 'auto'
+                }}
+                title="Send Message"
+              >
+                <Icons.Send size={16} />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -5446,7 +6795,7 @@ export default function MobileApp() {
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(9, 13, 22, 0.5)', color: '#fff', fontSize: '0.8rem', outline: 'none' }}
                   >
                     <option value="self" style={{ background: '#131b2e' }}>Franchise Owner (Self)</option>
-                    {mrs.map((mr) => (
+                    {mrs.filter(mr => mr.distributorId === loggedInUser?.id).map((mr) => (
                       <option key={mr.id} value={mr.id} style={{ background: '#131b2e' }}>{mr.name} ({mr.territory})</option>
                     ))}
                   </select>
@@ -5702,7 +7051,7 @@ export default function MobileApp() {
             }}>
               {[
                 { label: 'Products', val: products.length || '—', icon: <Icons.Package size={14} /> },
-                { label: userRole === 'mr' ? 'My Visits' : 'Team MRs', val: userRole === 'mr' ? doctorVisits.filter(v => v.mrId === loggedInUser.id).length : mrs.length, icon: <Icons.Users size={14} /> },
+                { label: userRole === 'mr' ? 'My Visits' : 'Team MRs', val: userRole === 'mr' ? doctorVisits.filter(v => v.mrId === loggedInUser.id).length : mrs.filter(mr => mr.distributorId === loggedInUser?.id).length, icon: <Icons.Users size={14} /> },
                 { label: 'Offers', val: userRole === 'mr' ? mrOffers.length : offers.length + mrOffers.filter(o => o.distributorId === loggedInUser.id).length, icon: <Icons.Gift size={14} /> }
               ].map((s, i) => (
                 <div key={i} style={{

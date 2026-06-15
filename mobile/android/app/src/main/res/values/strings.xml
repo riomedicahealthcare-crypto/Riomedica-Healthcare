@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Riomedica Healthcare</string>
+    <string name="title_activity_main">Riomedica Healthcare</string>
+    <string name="package_name">com.riomedica.healthcare</string>
+    <string name="custom_url_scheme">com.riomedica.healthcare</string>
+</resources>

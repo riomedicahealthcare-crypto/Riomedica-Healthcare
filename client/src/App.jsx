@@ -1,7 +1,8 @@
 // client/src/App.jsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Smartphone, Shield } from 'lucide-react';
+import { App as CapApp } from '@capacitor/app';
 import AndroidFrame from './components/AndroidFrame';
 import MobileApp from './components/MobileApp';
 import AdminLayout from './components/AdminLayout';
@@ -82,7 +83,49 @@ function ViewSwitcher() {
   );
 }
 
-function MainAppRoutes() {
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => window.innerWidth < 768 || !!window.Capacitor
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768 || !!window.Capacitor);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return isMobile;
+}
+
+function MainAppRoutes({ appId }) {
+  const isMobile = useIsMobile();
+
+  if (appId === 'com.riomedica.admin') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', position: 'fixed', top: 0, left: 0 }}>
+        <Routes>
+          <Route path="/" element={<AdminLayout />} />
+          <Route path="/index.html" element={<AdminLayout />} />
+          <Route path="/admin" element={<AdminLayout />} />
+        </Routes>
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', position: 'fixed', top: 0, left: 0 }}>
+        <Routes>
+          <Route path="/" element={<MobileApp />} />
+          <Route path="/index.html" element={<MobileApp />} />
+          <Route path="/admin" element={<AdminLayout />} />
+        </Routes>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <ViewSwitcher />
@@ -90,6 +133,14 @@ function MainAppRoutes() {
         <Routes>
           <Route 
             path="/" 
+            element={
+              <AndroidFrame>
+                <MobileApp />
+              </AndroidFrame>
+            } 
+          />
+          <Route 
+            path="/index.html" 
             element={
               <AndroidFrame>
                 <MobileApp />
@@ -104,9 +155,44 @@ function MainAppRoutes() {
 }
 
 export default function App() {
+  const [appId, setAppId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function getAppId() {
+      if (window.Capacitor) {
+        try {
+          const info = await CapApp.getInfo();
+          setAppId(info.id);
+        } catch (e) {
+          console.error("Capacitor App info error:", e);
+          setAppId('com.riomedica.healthcare');
+        }
+      } else {
+        setAppId('web');
+      }
+      setLoading(false);
+    }
+    getAppId();
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0a0f1e' }}>
+        <div style={{ width: '40px', height: '40px', border: '4px solid rgba(16, 185, 129, 0.1)', borderTop: '4px solid #10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <BrowserRouter>
-      <MainAppRoutes />
+      <MainAppRoutes appId={appId} />
     </BrowserRouter>
   );
 }

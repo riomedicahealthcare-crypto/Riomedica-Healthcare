@@ -9681,21 +9681,31 @@
       "status": "denied",
       "createdAt": "2026-06-08T09:15:00Z",
       "loginDetails": null
+    },
+    {
+      "id": "reg_mqe554xh_kmdi6",
+      "firmName": "1234",
+      "ownerName": "1234",
+      "mobile": "7999997509",
+      "email": "jatinderrana31174@gmail.com",
+      "drugLicence": "/uploads/drugLicence-1781463115047-400089287.jpeg",
+      "gst": "/uploads/gst-1781463115049-776145539.jpeg",
+      "pan": "",
+      "status": "pending",
+      "createdAt": "2026-06-14T18:51:55.061Z",
+      "loginDetails": null
     }
   ],
   "branding": {
     "companyName": "RIOMEDICA HEALTHCARE PVT LTD ",
     "tagline": "ALWAYS THERE FOR YOUR CARE",
-    "logo": "/uploads/logo-1781245109567-626367547.png"
+    "logo": "/uploads/logo-1781245109567-626367547.png",
+    "landingTitle": "Welcome to Riomedica",
+    "landingDescription": "Interactive Detailing & B2B Portal. We provide premium pharmaceutical products, from tablets and syrups to ointments and more. Our commitment is to deliver excellence in every product, prioritizing your health and well-being.",
+    "landingBgImage": "",
+    "topRightBadge": ""
   },
-  "banners": [
-    {
-      "id": "banner_mq7pjhrx",
-      "title": "RIOPLAY ",
-      "imageUrl": "/uploads/image-1781074113930-444892149.png",
-      "linkUrl": ""
-    }
-  ],
+  "banners": [],
   "mrs": [
     {
       "id": "mr_1",
@@ -9824,5 +9834,10 @@
       "createdAt": "2026-06-11T14:57:37.146Z",
       "status": "Completed"
     }
-  ]
+  ],
+  "settings": {
+    "otpChannel": "smtp",
+    "smtpEmail": "riomedicahealthcare@gmail.com",
+    "smtpPassword": "wuvoaassufxtjsdg"
+  }
 }

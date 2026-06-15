@@ -10,11 +10,51 @@ import {
   getBanners, addBanner, deleteBanner, bulkImportProducts, getSettings, updateSettings,
   getOrders, updateOrderStatus, deleteOrder
 } from '../utils';
+import { 
+  syncAllToFirebase, 
+  subscribeToProducts, 
+  subscribeToCategories, 
+  subscribeToOffers, 
+  subscribeToBanners, 
+  subscribeToBranding, 
+  subscribeToOrders, 
+  subscribeToRegistrations,
+  subscribeToConnection
+} from '../firebaseDb';
 
 export default function AdminLayout() {
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
+    return sessionStorage.getItem('adminLoggedIn') === 'true';
+  });
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState('');
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (adminUsername.toLowerCase() === 'admin' && adminPassword === 'admin123') {
+      setIsAdminLoggedIn(true);
+      sessionStorage.setItem('adminLoggedIn', 'true');
+      setAdminLoginError('');
+    } else {
+      setAdminLoginError('Invalid Administrator credentials.');
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminLoggedIn(false);
+    sessionStorage.removeItem('adminLoggedIn');
+    setAdminUsername('');
+    setAdminPassword('');
+  };
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isBrandingInitialized, setIsBrandingInitialized] = useState(false);
+  const [isSettingsInitialized, setIsSettingsInitialized] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard'); // dashboard, products, categories, offers, approvals, orders
   const [orders, setOrders] = useState([]);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
   
   // Data States
   const [products, setProducts] = useState([]);
@@ -66,6 +106,10 @@ export default function AdminLayout() {
   const [brandName, setBrandName] = useState('');
   const [brandTag, setBrandTag] = useState('');
   const [brandFile, setBrandFile] = useState(null);
+  const [brandLandingTitle, setBrandLandingTitle] = useState('');
+  const [brandLandingDesc, setBrandLandingDesc] = useState('');
+  const [brandLandingBgFile, setBrandLandingBgFile] = useState(null);
+  const [brandBadgeFile, setBrandBadgeFile] = useState(null);
   const [bannerTitle, setBannerTitle] = useState('');
   const [bannerLink, setBannerLink] = useState('');
   const [bannerFile, setBannerFile] = useState(null);
@@ -74,6 +118,9 @@ export default function AdminLayout() {
 
   // Settings & Gemini API States
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [otpChannel, setOtpChannel] = useState('mock');
+  const [smtpEmail, setSmtpEmail] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Admin AI Assistant Test Chat States
@@ -122,31 +169,188 @@ export default function AdminLayout() {
       setRegistrations(regs || []);
       setBranding(brand || { companyName: 'RIOMEDICA', tagline: 'Healthcare', logo: '' });
       setBanners(ban || []);
-      setGeminiApiKey(settings.geminiApiKey || '');
+      if (!isSettingsInitialized) {
+        let currentApiKey = settings.geminiApiKey || '';
+        let currentOtpChannel = settings.otpChannel || 'mock';
+        let currentSmtpEmail = settings.smtpEmail || '';
+        let currentSmtpPassword = settings.smtpPassword || '';
+
+        // If server settings are empty, check client LocalStorage fallback!
+        if (!currentSmtpEmail || !currentSmtpPassword) {
+          try {
+            const localDb = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+            const localSettings = localDb.settings || {};
+            if (localSettings.smtpEmail && localSettings.smtpPassword) {
+              currentApiKey = localSettings.geminiApiKey || currentApiKey;
+              currentOtpChannel = localSettings.otpChannel || currentOtpChannel;
+              currentSmtpEmail = localSettings.smtpEmail;
+              currentSmtpPassword = localSettings.smtpPassword;
+              
+              // Proactively save these back to the server now that connection is active!
+              console.log("[Admin] Syncing LocalStorage SMTP settings to server...");
+              updateSettings({
+                geminiApiKey: currentApiKey,
+                otpChannel: currentOtpChannel,
+                smtpEmail: currentSmtpEmail,
+                smtpPassword: currentSmtpPassword
+              }).catch(e => console.warn("Failed to auto-sync settings to server:", e));
+            }
+          } catch (e) {
+            console.error("Failed to read from localStorage settings fallback", e);
+          }
+        }
+
+        setGeminiApiKey(currentApiKey);
+        setOtpChannel(currentOtpChannel);
+        setSmtpEmail(currentSmtpEmail);
+        setSmtpPassword(currentSmtpPassword);
+        setIsSettingsInitialized(true);
+      }
       setOrders((ords || []).filter(o => o.createdByRole !== 'mr'));
       setIsOfflineMode(getLocalFallbackStatus());
+
+      // After loading, push a fresh snapshot to Firebase
+      return { cats, prods, offs, brand, ban, ords, colls, regs };
     } catch (err) {
       console.error(err);
+      return null;
+    }
+  };
+
+  // Helper: sync current local data to Firebase Realtime Database
+  const syncToFirebase = async () => {
+    try {
+      const data = await loadData();
+      if (!data) return;
+      await syncAllToFirebase({
+        products: data.prods,
+        categories: data.cats,
+        offers: data.offs,
+        branding: data.brand,
+        banners: data.ban,
+        orders: data.ords,
+        collections: data.colls,
+        users: data.regs,
+        registrations: data.regs
+      });
+      console.log('[Admin] Firebase synced successfully');
+    } catch (err) {
+      console.warn('[Admin] Firebase sync failed (non-critical):', err.message);
     }
   };
 
   useEffect(() => {
     loadData();
+    syncToFirebase(); // 🔥 Push database to Firebase on mount to ensure synchronization
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.getVoices();
     }
-    // Poll updates every 8 seconds for new registration requests
-    const interval = setInterval(loadData, 8000);
-    return () => clearInterval(interval);
+
+    // Subscribe to all Firebase data tables in real-time
+    const unsubProducts = subscribeToProducts((data) => {
+      if (data && data.length > 0) {
+        setProducts(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.products = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubCategories = subscribeToCategories((data) => {
+      if (data && data.length > 0) {
+        setCategories(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.categories = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubOffers = subscribeToOffers((data) => {
+      if (data) {
+        setOffers(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.offers = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubBanners = subscribeToBanners((data) => {
+      if (data) {
+        setBanners(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.banners = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubBranding = subscribeToBranding((data) => {
+      if (data) {
+        setBranding(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.branding = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubOrders = subscribeToOrders((data) => {
+      if (data) {
+        const filtered = data.filter(o => o.createdByRole !== 'mr');
+        setOrders(filtered);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.orders = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubRegs = subscribeToRegistrations((data) => {
+      if (data && data.length > 0) {
+        setRegistrations(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.registrations = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubConnection = subscribeToConnection((isConnected) => {
+      setIsFirebaseConnected(isConnected);
+    });
+
+    return () => {
+      unsubProducts();
+      unsubCategories();
+      unsubOffers();
+      unsubBanners();
+      unsubBranding();
+      unsubOrders();
+      unsubRegs();
+      unsubConnection();
+    };
   }, []);
 
   // Initialize input fields once branding data is fetched
   useEffect(() => {
-    if (branding) {
+    if (branding && !isBrandingInitialized) {
       setBrandName(branding.companyName || '');
       setBrandTag(branding.tagline || '');
+      setBrandLandingTitle(branding.landingTitle || '');
+      setBrandLandingDesc(branding.landingDescription || '');
+      setIsBrandingInitialized(true);
     }
-  }, [branding.companyName, branding.tagline]);
+  }, [branding, isBrandingInitialized]);
 
   const getCategoryName = (catId) => {
     const cat = categories.find(c => c.id === catId);
@@ -255,7 +459,7 @@ export default function AdminLayout() {
         await addProduct(formData);
       }
       setIsProductModalOpen(false);
-      loadData();
+      await syncToFirebase(); // 🔥 Auto-sync to Firebase
     } catch (err) {
       alert("Failed to save product: " + err.message);
     }
@@ -266,7 +470,7 @@ export default function AdminLayout() {
     if (confirm("Are you sure you want to delete this product?")) {
       try {
         await deleteProduct(id);
-        loadData();
+        await syncToFirebase(); // 🔥 Auto-sync to Firebase
       } catch (err) {
         alert(err.message);
       }
@@ -309,7 +513,7 @@ export default function AdminLayout() {
     try {
       await addOffer(formData);
       setIsOfferModalOpen(false);
-      loadData();
+      await syncToFirebase(); // 🔥 Auto-sync to Firebase
     } catch (err) {
       alert("Failed to save offer: " + err.message);
     }
@@ -320,7 +524,7 @@ export default function AdminLayout() {
     if (confirm("Are you sure you want to remove this offer?")) {
       try {
         await deleteOffer(id);
-        loadData();
+        await syncToFirebase(); // 🔥 Auto-sync to Firebase
       } catch (err) {
         alert(err.message);
       }
@@ -335,15 +539,27 @@ export default function AdminLayout() {
     const formData = new FormData();
     formData.append('companyName', brandName);
     formData.append('tagline', brandTag);
+    formData.append('landingTitle', brandLandingTitle);
+    formData.append('landingDescription', brandLandingDesc);
     if (brandFile) {
       formData.append('logo', brandFile);
+    }
+    if (brandLandingBgFile) {
+      formData.append('landingBgImage', brandLandingBgFile);
+    }
+    if (brandBadgeFile) {
+      formData.append('topRightBadge', brandBadgeFile);
     }
 
     try {
       const updated = await updateBranding(formData);
       setBranding(updated);
+      setIsBrandingInitialized(false);
       setBrandFile(null);
-      alert('Branding settings saved successfully!');
+      setBrandLandingBgFile(null);
+      setBrandBadgeFile(null);
+      await syncToFirebase(); // 🔥 Auto-sync to Firebase
+      alert('Branding settings saved and synced to all devices!');
     } catch (err) {
       alert(err.message || 'Failed to update branding settings.');
     } finally {
@@ -351,26 +567,14 @@ export default function AdminLayout() {
     }
   };
 
-  // Handle Save Settings (Gemini API Key)
+  // Handle Save Settings (Gemini API Key, SMTP & OTP Configuration)
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     setIsSavingSettings(true);
     try {
-      let apiBase = 'http://localhost:5000/api';
-      if (typeof window !== 'undefined') {
-        const origin = window.location.origin;
-        if (!origin.includes(':517')) {
-          apiBase = `${origin}/api`;
-        }
-      }
-
       // Try updating server settings directly
       try {
-        await fetch(`${apiBase}/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ geminiApiKey })
-        });
+        await updateSettings({ geminiApiKey, otpChannel, smtpEmail, smtpPassword });
       } catch (serverErr) {
         console.warn("Could not save settings directly to server:", serverErr);
       }
@@ -380,15 +584,19 @@ export default function AdminLayout() {
         const localDb = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
         localDb.settings = localDb.settings || {};
         localDb.settings.geminiApiKey = geminiApiKey;
+        localDb.settings.otpChannel = otpChannel;
+        localDb.settings.smtpEmail = smtpEmail;
+        localDb.settings.smtpPassword = smtpPassword;
         localStorage.setItem('riomedica_db', JSON.stringify(localDb));
       } catch (err) {
         console.error("Failed to write settings to localStorage", err);
       }
 
-      alert('Gemini API key saved successfully!');
+      alert('Configuration saved successfully!');
+      setIsSettingsInitialized(false);
       loadData(); // Reload settings and updates
     } catch (err) {
-      alert(err.message || 'Failed to save Gemini API key.');
+      alert(err.message || 'Failed to save configuration settings.');
     } finally {
       setIsSavingSettings(false);
     }
@@ -1011,7 +1219,7 @@ export default function AdminLayout() {
         password: genPassword
       });
       setApprovingReg(null);
-      loadData();
+      await syncToFirebase(); // 🔥 Auto-sync users to Firebase
     } catch (err) {
       alert("Failed to approve user: " + err.message);
     }
@@ -1022,7 +1230,7 @@ export default function AdminLayout() {
     if (confirm("Are you sure you want to DENY this registration request?")) {
       try {
         await denyRegistration(id);
-        loadData();
+        await syncToFirebase(); // 🔥 Auto-sync to Firebase
       } catch (err) {
         alert(err.message);
       }
@@ -1042,7 +1250,7 @@ export default function AdminLayout() {
       setNewCatName('');
       setNewCatDesc('');
       setNewCatIcon('Activity');
-      loadData();
+      await syncToFirebase(); // 🔥 Auto-sync to Firebase
     } catch (err) {
       alert(err.message);
     }
@@ -1053,7 +1261,7 @@ export default function AdminLayout() {
     if (confirm("Deleting a category will unassign its products. Proceed?")) {
       try {
         await deleteCategory(id);
-        loadData();
+        await syncToFirebase(); // 🔥 Auto-sync to Firebase
       } catch (err) {
         alert(err.message);
       }
@@ -1099,7 +1307,7 @@ export default function AdminLayout() {
       fd.append('file', excelFile);
       const result = await bulkImportProducts(fd);
       setImportResult(result);
-      loadData();
+      await syncToFirebase(); // 🔥 Auto-sync to Firebase after bulk import
     } catch (err) {
       setImportResult({ error: err.message });
     } finally {
@@ -1153,111 +1361,348 @@ export default function AdminLayout() {
   };
 
 
+  if (!isAdminLoggedIn) {
+    return (
+      <div 
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '100vh',
+          width: '100vw',
+          background: 'radial-gradient(circle at top right, #09121a, #04080c)',
+          fontFamily: 'var(--font-primary)',
+          padding: '20px',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div 
+          style={{
+            background: 'rgba(10, 15, 30, 0.75)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(16, 185, 129, 0.2)',
+            borderRadius: '24px',
+            padding: '40px 32px',
+            width: '100%',
+            maxWidth: '420px',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(16, 185, 129, 0.1)',
+            textAlign: 'center'
+          }}
+        >
+          {/* Logo / Icon */}
+          <div 
+            style={{
+              background: 'linear-gradient(135deg, #10b981, #059669)',
+              width: '64px',
+              height: '64px',
+              borderRadius: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 24px',
+              boxShadow: '0 8px 20px rgba(16, 185, 129, 0.3)'
+            }}
+          >
+            <Icons.ShieldAlert size={32} color="#fff" />
+          </div>
+
+          <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
+            Riomedica Admin
+          </h2>
+          <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '32px' }}>
+            Authorized Administrator Portal Access Only
+          </p>
+
+          <form onSubmit={handleAdminLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
+                Admin Username
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Icons.User size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <input 
+                  type="text"
+                  placeholder="Enter username"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px 14px 44px',
+                    background: 'rgba(30, 41, 59, 0.5)',
+                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '0.95rem',
+                    outline: 'none',
+                    transition: 'all 0.3s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#10b981';
+                    e.target.style.boxShadow = '0 0 10px rgba(16, 185, 129, 0.2)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
+                Admin Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Icons.Lock size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <input 
+                  type="password"
+                  placeholder="Enter password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px 14px 44px',
+                    background: 'rgba(30, 41, 59, 0.5)',
+                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '0.95rem',
+                    outline: 'none',
+                    transition: 'all 0.3s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#10b981';
+                    e.target.style.boxShadow = '0 0 10px rgba(16, 185, 129, 0.2)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+            </div>
+
+            {adminLoginError && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', color: '#f87171', fontSize: '0.85rem', textAlign: 'left' }}>
+                <Icons.AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                <span>{adminLoginError}</span>
+              </div>
+            )}
+
+            <button 
+              type="submit"
+              style={{
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: '1rem',
+                border: 'none',
+                borderRadius: '12px',
+                padding: '16px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.35)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = 'none';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.2)';
+              }}
+            >
+              <Icons.LogIn size={18} /> Sign In to Portal
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="admin-shell">
       {/* Sidebar Navigation */}
       <div className="admin-sidebar">
-        <div className="admin-logo-section">
-          {branding.logo ? (
-            <img 
-              src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} 
-              alt="Logo" 
-              style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover' }}
-            />
-          ) : (
-            <div 
-              style={{
-                background: 'linear-gradient(135deg, #10b981, #34d399)',
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 800,
-                fontSize: '1.2rem',
-                color: '#fff'
+        <div className="admin-logo-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {branding.logo ? (
+              <img 
+                src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} 
+                alt="Logo" 
+                style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover' }}
+              />
+            ) : (
+              <div 
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #34d399)',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 800,
+                  fontSize: '1.2rem',
+                  color: '#fff'
+                }}
+              >
+                {branding.companyName ? branding.companyName.charAt(0) : 'R'}
+              </div>
+            )}
+            <div>
+              <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>{branding.companyName || 'RIOMEDICA'}</h1>
+              <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '1px', color: '#10b981', fontWeight: 700 }}>{branding.tagline || 'Healthcare'}</span>
+            </div>
+          </div>
+          
+          {/* Hamburger Menu Toggle (Only visible on mobile) */}
+          <button 
+            className="admin-mobile-menu-toggle"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#fff',
+              cursor: 'pointer',
+              padding: '8px',
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            {isMobileMenuOpen ? <Icons.X size={24} /> : <Icons.Menu size={24} />}
+          </button>
+        </div>
+
+        {/* Sidebar Content wrapper (collapses on mobile) */}
+        <div className={`admin-sidebar-content ${isMobileMenuOpen ? 'open' : ''}`}>
+          <div className="admin-menu">
+            <button 
+              className={`admin-menu-item ${activeMenu === 'dashboard' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('dashboard');
+                setIsMobileMenuOpen(false);
               }}
             >
-              {branding.companyName ? branding.companyName.charAt(0) : 'R'}
-            </div>
-          )}
-          <div>
-            <h1>{branding.companyName || 'RIOMEDICA'}</h1>
-            <span>{branding.tagline || 'Healthcare'}</span>
-          </div>
-        </div>
-
-        <div className="admin-menu">
-          <button 
-            className={`admin-menu-item ${activeMenu === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('dashboard')}
-          >
-            <Icons.LayoutDashboard size={18} /> Dashboard
-          </button>
-          <button 
-            className={`admin-menu-item ${activeMenu === 'products' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('products')}
-          >
-            <Icons.Layers size={18} /> Product Catalog
-          </button>
-          <button 
-            className={`admin-menu-item ${activeMenu === 'categories' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('categories')}
-          >
-            <Icons.Tags size={18} /> Category Manager
-          </button>
-          <button 
-            className={`admin-menu-item ${activeMenu === 'offers' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('offers')}
-          >
-            <Icons.BadgePercent size={18} /> Bumper Offers
-          </button>
-          {/* User approvals menu tab with pending badge counter */}
-          <button 
-            className={`admin-menu-item ${activeMenu === 'approvals' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('approvals')}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Icons.UserCheck size={18} /> User Approvals
-            </span>
-            {pendingRegistrations.length > 0 && (
-              <span className="admin-notification-badge">{pendingRegistrations.length}</span>
-            )}
-          </button>
-          <button 
-            className={`admin-menu-item ${activeMenu === 'branding' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('branding')}
-          >
-            <Icons.Palette size={18} /> Branding & Banners
-          </button>
-          <button 
-            className={`admin-menu-item ${activeMenu === 'orders' ? 'active' : ''}`}
-            onClick={() => setActiveMenu('orders')}
-          >
-            <Icons.ShoppingCart size={18} /> B2B Orders
-          </button>
-        </div>
-
-        <div style={{ marginTop: 'auto', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <div 
-              style={{
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: isOfflineMode ? '#f59e0b' : '#10b981'
+              <Icons.LayoutDashboard size={18} /> Dashboard
+            </button>
+            <button 
+              className={`admin-menu-item ${activeMenu === 'products' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('products');
+                setIsMobileMenuOpen(false);
               }}
-            />
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>
-              {isOfflineMode ? 'Offline Sync Active' : 'API Connection Live'}
-            </span>
+            >
+              <Icons.Layers size={18} /> Product Catalog
+            </button>
+            <button 
+              className={`admin-menu-item ${activeMenu === 'categories' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('categories');
+                setIsMobileMenuOpen(false);
+              }}
+            >
+              <Icons.Tags size={18} /> Category Manager
+            </button>
+            <button 
+              className={`admin-menu-item ${activeMenu === 'offers' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('offers');
+                setIsMobileMenuOpen(false);
+              }}
+            >
+              <Icons.BadgePercent size={18} /> Bumper Offers
+            </button>
+            <button 
+              className={`admin-menu-item ${activeMenu === 'approvals' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('approvals');
+                setIsMobileMenuOpen(false);
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Icons.UserCheck size={18} /> User Approvals
+              </span>
+              {pendingRegistrations.length > 0 && (
+                <span className="admin-notification-badge">{pendingRegistrations.length}</span>
+              )}
+            </button>
+            <button 
+              className={`admin-menu-item ${activeMenu === 'branding' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('branding');
+                setIsMobileMenuOpen(false);
+              }}
+            >
+              <Icons.Palette size={18} /> Branding & Banners
+            </button>
+            <button 
+              className={`admin-menu-item ${activeMenu === 'orders' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('orders');
+                setIsMobileMenuOpen(false);
+              }}
+            >
+              <Icons.ShoppingCart size={18} /> B2B Orders
+            </button>
+            <button 
+              className="admin-menu-item"
+              onClick={() => {
+                handleAdminLogout();
+                setIsMobileMenuOpen(false);
+              }}
+              style={{ 
+                marginTop: 'auto', 
+                color: '#ef4444', 
+                background: 'transparent',
+                border: 'none',
+                width: '100%',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                cursor: 'pointer'
+              }}
+            >
+              <Icons.LogOut size={18} /> Sign Out
+            </button>
           </div>
-          {isOfflineMode && (
-            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', lineHeight: '1.4' }}>
-              Warning: Backend server is unreachable. Changes are currently cached locally in browser Storage.
-            </p>
-          )}
+
+          <div style={{ marginTop: 'auto', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <div 
+                style={{
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  background: isFirebaseConnected ? '#10b981' : (isOfflineMode ? '#f59e0b' : '#10b981')
+                }}
+              />
+              <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>
+                {isFirebaseConnected ? 'Firebase Realtime Live' : (isOfflineMode ? 'Offline Sync Active' : 'API Connection Live')}
+              </span>
+            </div>
+            {!isFirebaseConnected && isOfflineMode && (
+              <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', lineHeight: '1.4' }}>
+                Warning: Backend server and Firebase are unreachable. Changes are currently cached locally in browser Storage.
+              </p>
+            )}
+            {isFirebaseConnected && (
+              <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', lineHeight: '1.4' }}>
+                Firebase Sync Active. Changes are syncing in real time.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2179,6 +2624,119 @@ export default function AdminLayout() {
                     />
                   </div>
 
+                   <div className="form-group">
+                    <label>Landing Welcome Title</label>
+                    <input 
+                      type="text" 
+                      className="form-control"
+                      placeholder="e.g. Welcome to Intra Life" 
+                      value={brandLandingTitle}
+                      onChange={(e) => setBrandLandingTitle(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Landing Welcome Description</label>
+                    <textarea 
+                      className="form-control"
+                      placeholder="e.g. Where we provide premium pharmaceutical products..." 
+                      value={brandLandingDesc}
+                      onChange={(e) => setBrandLandingDesc(e.target.value)}
+                      rows={3}
+                      style={{ resize: 'vertical' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Landing Background Image</label>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '8px' }}>
+                      <div 
+                        style={{
+                          width: '96px',
+                          height: '54px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-admin)',
+                          background: '#f8fafc',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {brandLandingBgFile ? (
+                          <img src={URL.createObjectURL(brandLandingBgFile)} alt="Bg Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : branding.landingBgImage ? (
+                          <img src={branding.landingBgImage.startsWith('http') ? branding.landingBgImage : `${IMAGE_BASE}${branding.landingBgImage}`} alt="Current Bg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <Icons.Image size={24} color="#94a3b8" />
+                        )}
+                      </div>
+                      <div>
+                        <button 
+                          type="button" 
+                          className="btn-admin-secondary"
+                          onClick={() => document.getElementById('landing-bg-file-input').click()}
+                          style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                        >
+                          Change Background Image
+                        </button>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>PNG or JPG, 16:9 aspect ratio recommended</span>
+                      </div>
+                    </div>
+                    <input 
+                      id="landing-bg-file-input" 
+                      type="file" 
+                      accept="image/*" 
+                      style={{ display: 'none' }} 
+                      onChange={(e) => setBrandLandingBgFile(e.target.files[0])}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Top-Right Corner Badge Image</label>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '8px' }}>
+                      <div 
+                        style={{
+                          width: '64px',
+                          height: '64px',
+                          borderRadius: '12px',
+                          border: '1px solid var(--border-admin)',
+                          background: '#f8fafc',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {brandBadgeFile ? (
+                          <img src={URL.createObjectURL(brandBadgeFile)} alt="Badge Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : branding.topRightBadge ? (
+                          <img src={branding.topRightBadge.startsWith('http') ? branding.topRightBadge : `${IMAGE_BASE}${branding.topRightBadge}`} alt="Current Badge" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <Icons.Image size={24} color="#94a3b8" />
+                        )}
+                      </div>
+                      <div>
+                        <button 
+                          type="button" 
+                          className="btn-admin-secondary"
+                          onClick={() => document.getElementById('badge-file-input').click()}
+                          style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                        >
+                          Change Badge Image
+                        </button>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>PNG format recommended</span>
+                      </div>
+                    </div>
+                    <input 
+                      id="badge-file-input" 
+                      type="file" 
+                      accept="image/*" 
+                      style={{ display: 'none' }} 
+                      onChange={(e) => setBrandBadgeFile(e.target.files[0])}
+                    />
+                  </div>
+
                   <button 
                     type="submit" 
                     className="btn-admin-primary"
@@ -2191,11 +2749,11 @@ export default function AdminLayout() {
                 </form>
               </div>
 
-              {/* Card 2: Gemini API settings */}
+              {/* Card 2: System Configuration settings */}
               <div className="admin-card-container" style={{ padding: '24px', height: 'max-content' }}>
                 <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 800, marginBottom: '20px', borderBottom: '1px solid var(--border-admin)', paddingBottom: '12px' }}>
                   <Icons.Cpu size={20} style={{ display: 'inline', marginRight: '8px', verticalAlign: 'text-bottom' }} />
-                  Gemini API Configuration
+                  System Configuration
                 </h3>
 
                 <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2213,6 +2771,52 @@ export default function AdminLayout() {
                     </span>
                   </div>
 
+                  <div className="form-group" style={{ borderTop: '1px solid var(--border-admin)', paddingTop: '16px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Icons.Mail size={16} color="#10b981" /> OTP Delivery Channel
+                    </label>
+                    <select
+                      className="form-control"
+                      value={otpChannel}
+                      onChange={(e) => setOtpChannel(e.target.value)}
+                      style={{ marginTop: '8px' }}
+                    >
+                      <option value="mock">Simulated OTP (On-Screen Mock Alert)</option>
+                      <option value="smtp">Gmail SMTP Email Gateway (Real-Time)</option>
+                    </select>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>
+                      Choose how OTP codes are delivered for firm registration and user log-in.
+                    </span>
+                  </div>
+
+                  {otpChannel === 'smtp' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--border-admin)' }}>
+                      <div className="form-group">
+                        <label>Sender Gmail Address</label>
+                        <input 
+                          type="email" 
+                          className="form-control"
+                          placeholder="e.g. yourname@gmail.com" 
+                          value={smtpEmail}
+                          onChange={(e) => setSmtpEmail(e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Gmail SMTP App Password</label>
+                        <input 
+                          type="password" 
+                          className="form-control"
+                          placeholder="16-character App Password" 
+                          value={smtpPassword}
+                          onChange={(e) => setSmtpPassword(e.target.value)}
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>
+                          Create a 16-character Google App Password in your Google Account Security settings.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   <button 
                     type="submit" 
                     className="btn-admin-primary"
@@ -2220,7 +2824,7 @@ export default function AdminLayout() {
                     disabled={isSavingSettings}
                   >
                     <Icons.Save size={16} />
-                    {isSavingSettings ? 'Saving Key...' : 'Save API Key'}
+                    {isSavingSettings ? 'Saving Settings...' : 'Save Settings'}
                   </button>
                 </form>
               </div>
@@ -2420,7 +3024,7 @@ export default function AdminLayout() {
                                     const nextStatus = ord.status === 'Completed' ? 'Pending' : 'Completed';
                                     try {
                                       await updateOrderStatus(ord.id, nextStatus);
-                                      loadData();
+                                      await syncToFirebase(); // 🔥 Auto-sync to Firebase
                                     } catch (err) {
                                       alert("Failed to update status");
                                     }
@@ -2443,7 +3047,7 @@ export default function AdminLayout() {
                                     if (confirm("Are you sure you want to delete this order record?")) {
                                       try {
                                         await deleteOrder(ord.id);
-                                        loadData();
+                                        await syncToFirebase(); // 🔥 Auto-sync to Firebase
                                       } catch (err) {
                                         alert("Failed to delete order");
                                       }
@@ -3142,76 +3746,192 @@ export default function AdminLayout() {
           {/* Footer Input */}
           <div
             style={{
-              padding: '16px 20px',
+              padding: '12px 16px 16px 16px',
               background: '#131b2e',
-              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              borderTop: '1px solid rgba(255,255,255,0.1)',
               display: 'flex',
-              gap: '12px',
-              alignItems: 'center',
-              flexShrink: 0
+              flexDirection: 'column',
+              gap: '10px',
+              flexShrink: 0,
+              pointerEvents: 'auto'
             }}
           >
-            {/* Microphone Trigger Button */}
-            <button
-              onClick={toggleSpeechRecognition}
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
-                background: isAiListening 
-                  ? 'linear-gradient(135deg, #ef4444, #dc2626)' 
-                  : 'rgba(255,255,255,0.03)',
-                border: '1px solid',
-                borderColor: isAiListening ? '#ef4444' : 'rgba(255,255,255,0.1)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.25s ease',
-                boxShadow: isAiListening ? '0 0 12px rgba(239, 68, 68, 0.4)' : 'none',
-                position: 'relative'
+            {/* Top row: Language selection pills & wake word status */}
+            <div 
+              style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                gap: '8px',
+                width: '100%',
+                fontSize: '0.72rem'
               }}
-              title={isAiListening ? "Listening... Click to stop" : "Speak to type"}
             >
-              {isAiListening ? (
-                <>
-                  <Icons.Mic size={18} style={{ animation: 'pulse 1.2s infinite' }} />
-                  <span 
-                    style={{
-                      position: 'absolute',
-                      top: '-1px',
-                      right: '-1px',
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: '#ef4444',
-                      border: '1px solid #131b2e'
-                    }}
-                  />
-                </>
-              ) : (
-                <Icons.Mic size={18} style={{ color: '#cbd5e1' }} />
-              )}
-            </button>
+              {/* Language Pills */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <span style={{ color: '#64748b', fontWeight: 700, marginRight: '2px' }}>Speak:</span>
+                {[
+                  { code: 'en-IN', label: 'EN' },
+                  { code: 'hi-IN', label: 'HI' },
+                  { code: 'ta-IN', label: 'TA' },
+                  { code: 'mr-IN', label: 'MR' }
+                ].map((l) => {
+                  const isActive = speechLangCode === l.code;
+                  return (
+                    <button
+                      key={l.code}
+                      onClick={() => setSpeechLangCode(l.code)}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        background: isActive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.03)',
+                        border: '1px solid',
+                        borderColor: isActive ? '#10b981' : 'rgba(255,255,255,0.1)',
+                        color: isActive ? '#34d399' : '#64748b',
+                        fontSize: '0.65rem',
+                        fontWeight: '800',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {l.label}
+                    </button>
+                  );
+                })}
+              </div>
 
-            <input
-              type="text"
-              placeholder={isAiListening ? "Listening... Speak now!" : "Ask in Hindi, English, Tamil, Marathi..."}
-              value={aiInputText}
-              onChange={e => setAiInputText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSendAiMessage(aiInputText); }}
-              style={{
-                flex: 1,
-                background: 'rgba(255,255,255,0.03)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '12px',
-                padding: '12px 16px',
-                color: '#fff',
-                fontSize: '0.85rem',
-                outline: 'none'
-              }}
-            />
+              {/* Wake Word Status Pill */}
+              <div 
+                onClick={() => setIsWakeWordActive(prev => !prev)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '4px',
+                  background: isWakeWordActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.03)',
+                  border: '1px solid',
+                  borderColor: isWakeWordActive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)',
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  color: isWakeWordActive ? '#34d399' : '#64748b',
+                  fontSize: '0.62rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}
+                title={isWakeWordActive ? "Wake Word Listener: Active (Click to disable)" : "Wake Word Listener: Disabled (Click to enable)"}
+              >
+                <span 
+                  style={{ 
+                    width: '6px', 
+                    height: '6px', 
+                    borderRadius: '50%', 
+                    background: isWakeWordActive ? '#10b981' : '#64748b',
+                    display: 'inline-block',
+                    animation: isWakeWordActive ? 'pulse 1.2s infinite' : 'none'
+                  }} 
+                />
+                Priya Wake
+              </div>
+            </div>
+
+            {/* Bottom row: Mic, Input, Send button */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
+              {/* Microphone Trigger Button */}
+              <button
+                onClick={toggleSpeechRecognition}
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: isAiListening 
+                    ? 'linear-gradient(135deg, #ef4444, #dc2626)' 
+                    : 'rgba(255,255,255,0.03)',
+                  border: '1px solid',
+                  borderColor: isAiListening ? '#ef4444' : 'rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.25s ease',
+                  boxShadow: isAiListening ? '0 0 12px rgba(239, 68, 68, 0.4)' : 'none',
+                  position: 'relative',
+                  flexShrink: 0,
+                  pointerEvents: 'auto'
+                }}
+                title={isAiListening ? "Listening... Click to stop" : "Speak to type"}
+              >
+                {isAiListening ? (
+                  <>
+                    <Icons.Mic size={18} style={{ animation: 'pulse 1.2s infinite' }} />
+                    <span 
+                      style={{
+                        position: 'absolute',
+                        top: '-1px',
+                        right: '-1px',
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        background: '#ef4444',
+                        border: '1px solid #131b2e'
+                      }}
+                    />
+                  </>
+                ) : (
+                  <Icons.Mic size={18} style={{ color: '#cbd5e1' }} />
+                )}
+              </button>
+
+              <input
+                type="text"
+                placeholder={isAiListening ? "Listening... Speak now!" : "Ask in Hindi, English, Tamil, Marathi..."}
+                value={aiInputText}
+                onChange={e => setAiInputText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSendAiMessage(aiInputText); }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  color: '#fff',
+                  fontSize: '0.82rem',
+                  outline: 'none',
+                  pointerEvents: 'auto'
+                }}
+              />
+
+              {/* Clickable Send Button */}
+              <button
+                onClick={() => {
+                  if (aiInputText && aiInputText.trim()) {
+                    handleSendAiMessage(aiInputText);
+                  }
+                }}
+                disabled={!aiInputText || !aiInputText.trim() || isAiTyping}
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: (aiInputText && aiInputText.trim() && !isAiTyping) 
+                    ? 'linear-gradient(135deg, #10b981, #059669)' 
+                    : 'rgba(255,255,255,0.02)',
+                  border: '1px solid',
+                  borderColor: (aiInputText && aiInputText.trim() && !isAiTyping) ? '#10b981' : 'rgba(255,255,255,0.05)',
+                  color: (aiInputText && aiInputText.trim() && !isAiTyping) ? '#fff' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: (aiInputText && aiInputText.trim() && !isAiTyping) ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  pointerEvents: 'auto'
+                }}
+                title="Send Message"
+              >
+                <Icons.Send size={16} />
+              </button>
+            </div>
           </div>
         </div>
       )}
