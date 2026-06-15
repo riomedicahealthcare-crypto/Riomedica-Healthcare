@@ -667,7 +667,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
 
   console.log(`\n--- [GMAIL OTP GATEWAY] ---`);
   console.log(`To Email: ${toEmail}`);
-  console.log(`Purpose: ${type === 'register' ? 'Registration' : 'Sign In'}`);
+  console.log(`Purpose: ${(type === 'register' || type === 'registration') ? 'Registration' : 'Sign In'}`);
   console.log(`Verification Code: ${otp}`);
   console.log(`Mode: ${isSmtp ? 'Gmail SMTP Relay (Real-Time)' : 'Simulated (Mock On-Screen Alert)'}`);
   console.log(`---------------------------\n`);
@@ -702,7 +702,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
           </div>
           <div style="font-size: 15px; color: #334155; line-height: 1.6; margin-bottom: 24px;">
             <p style="margin-top: 0;">Hello,</p>
-            <p>Please use the following 6-digit security code to verify your account for <strong>${type === 'register' ? 'Registration' : 'Sign In'}</strong>. This code is valid for 5 minutes.</p>
+            <p>Please use the following 6-digit security code to verify your account for <strong>${(type === 'register' || type === 'registration') ? 'Registration' : 'Sign In'}</strong>. This code is valid for 5 minutes.</p>
             <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
               <span style="font-family: monospace; font-size: 36px; font-weight: 800; color: #0f172a; letter-spacing: 6px; display: inline-block;">${otp}</span>
             </div>

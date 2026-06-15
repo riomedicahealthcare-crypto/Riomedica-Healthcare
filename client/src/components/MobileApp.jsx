@@ -1771,30 +1771,38 @@ export default function MobileApp() {
       return;
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(regEmail)) {
+      setRegError('Please enter a valid email address.');
+      return;
+    }
+
     setIsRegistering(true);
 
     try {
-      const res = await sendMobileOtp(regMobile);
-      setMockSmsHint(res.mockOtp || '123456');
+      // Send Gmail OTP to the user's email address for verification
+      const res = await sendGmailOtp(regEmail, 'registration');
+      setMockSmsHint(res.mockOtp || '');
       setRegMobileOtpCode('');
       setRegMobileOtpError('');
       setShowMobileOtpModal(true);
     } catch (err) {
-      setRegError(err.message || 'Failed to send verification code to mobile number.');
+      setRegError(err.message || 'Failed to send verification email. Please check your email address.');
     } finally {
       setIsRegistering(false);
     }
   };
 
-  // Verify mobile OTP and complete registration
+  // Verify Gmail OTP and complete registration
   const handleVerifyMobileAndRegister = async (e) => {
     e.preventDefault();
     setRegMobileOtpError('');
     setIsVerifyingMobileOtp(true);
 
     try {
-      // 1. Verify OTP code
-      await verifyMobileOtp(regMobile, regMobileOtpCode);
+      // 1. Verify Gmail OTP sent to the user's email
+      await verifyGmailOtp(regEmail, regMobileOtpCode);
 
       // 2. Submit the registration details and files
       const formData = new FormData();
@@ -1823,7 +1831,7 @@ export default function MobileApp() {
       setShowMobileOtpModal(false);
       setAuthView('pending');
     } catch (err) {
-      setRegMobileOtpError(err.message || 'Verification failed. Please check the code.');
+      setRegMobileOtpError(err.message || 'Verification failed. Please check the OTP sent to your email.');
     } finally {
       setIsVerifyingMobileOtp(false);
     }
@@ -2059,6 +2067,20 @@ export default function MobileApp() {
                 objectFit: 'cover',
                 objectPosition: 'center top',
                 display: 'block'
+              }}
+            />
+
+            {/* Dark gradient overlay at bottom so swipe button is clearly visible */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: '120px',
+                background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.5) 60%, transparent 100%)',
+                pointerEvents: 'none',
+                zIndex: 10
               }}
             />
 
