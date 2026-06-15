@@ -858,6 +858,15 @@ app.post('/api/admin/verify-2fa', (req, res) => {
   return res.status(400).json({ error: 'Verification code is required' });
 });
 
+// Get Admin Security Status
+app.get('/api/admin/status', requireAdminAuth, (req, res) => {
+  const db = readDb();
+  res.json({
+    twoFactorEnabled: !!(db.admin && db.admin.twoFactorEnabled),
+    email: db.admin ? db.admin.email : 'Riomedicahealthcare@gmail.com'
+  });
+});
+
 // Generate 2FA Secret
 app.post('/api/admin/setup-2fa', requireAdminAuth, (req, res) => {
   const db = readDb();

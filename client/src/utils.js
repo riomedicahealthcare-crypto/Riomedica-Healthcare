@@ -933,6 +933,15 @@ function handleLocalFallback(url, options) {
   }
 
   // --- ADMIN SECURITY ENDPOINTS ---
+  if (path === '/admin/status') {
+    if (method === 'GET') {
+      return {
+        twoFactorEnabled: !!(db.admin && db.admin.twoFactorEnabled),
+        email: db.admin ? db.admin.email : 'Riomedicahealthcare@gmail.com'
+      };
+    }
+  }
+
   if (path === '/admin/verify-2fa') {
     if (method === 'POST') {
       const { username, totpCode, fallbackOtp } = JSON.parse(options.body);
@@ -1630,6 +1639,8 @@ export const verifyGmailOtp = async (email, otp) => {
     throw err;
   }
 };
+
+export const getAdminSecurityStatus = () => safeFetch(`${API_BASE}/admin/status`);
 
 export const verifyAdmin2FA = (data) => safeFetch(`${API_BASE}/admin/verify-2fa`, {
   method: 'POST',

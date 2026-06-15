@@ -10,7 +10,7 @@ import {
   getBanners, addBanner, deleteBanner, bulkImportProducts, getSettings, updateSettings,
   getOrders, updateOrderStatus, deleteOrder,
   loginUser, sendGmailOtp,
-  verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword
+  verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword, getAdminSecurityStatus
 } from '../utils';
 import { 
   syncAllToFirebase, 
@@ -455,6 +455,18 @@ export default function AdminLayout() {
       unsubConnection();
     };
   }, []);
+
+  useEffect(() => {
+    if (isAdminLoggedIn) {
+      getAdminSecurityStatus()
+        .then(data => {
+          if (data) setSecurityStatus(data);
+        })
+        .catch(err => {
+          console.warn('Failed to fetch admin security status:', err.message);
+        });
+    }
+  }, [isAdminLoggedIn]);
 
   // Initialize input fields once branding data is fetched
   useEffect(() => {
