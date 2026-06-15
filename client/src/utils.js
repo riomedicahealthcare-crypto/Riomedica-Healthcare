@@ -2,6 +2,11 @@
 import { fbWriteOtp, fbDeleteOtp, fbVerifyOtp } from './firebaseDb';
 
 const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.endsWith('/api') 
+      ? import.meta.env.VITE_API_URL 
+      : `${import.meta.env.VITE_API_URL}/api`;
+  }
   if (typeof window === 'undefined') return 'http://localhost:5000/api';
   const origin = window.location.origin;
   if (origin.includes(':517')) { // Vite dev server
@@ -11,6 +16,9 @@ const getApiBase = () => {
 };
 
 const getImageBase = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace(/\/api$/, '');
+  }
   if (typeof window === 'undefined') return 'http://localhost:5000';
   const origin = window.location.origin;
   if (origin.includes(':517')) { // Vite dev server

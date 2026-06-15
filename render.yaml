@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: riomedica-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server/server.js
+    envVars:
+      - key: PORT
+        value: 5000

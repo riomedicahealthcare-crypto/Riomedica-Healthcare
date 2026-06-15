@@ -839,7 +839,11 @@ export default function MobileApp() {
 
       // Calculate api base dynamically (bypass safeFetch to consume streaming reader)
       let apiBase = 'http://localhost:5000/api';
-      if (typeof window !== 'undefined') {
+      if (import.meta.env.VITE_API_URL) {
+        apiBase = import.meta.env.VITE_API_URL.endsWith('/api') 
+          ? import.meta.env.VITE_API_URL 
+          : `${import.meta.env.VITE_API_URL}/api`;
+      } else if (typeof window !== 'undefined') {
         const origin = window.location.origin;
         if (!origin.includes(':517')) { // Production served assets
           apiBase = `${origin}/api`;
