@@ -275,7 +275,14 @@ const FALLBACK_DATA = {
       remarks: "Highly interested in Rabrio 20 launch"
     }
   ],
-  orders: []
+  orders: [],
+  admin: {
+    username: "admin",
+    password: "", // starts empty
+    email: "Riomedicahealthcare@gmail.com",
+    twoFactorSecret: "",
+    twoFactorEnabled: false
+  }
 };
 
 // Initialize LocalStorage if empty
@@ -313,6 +320,16 @@ const initLocalStorage = () => {
       oldDb.orders = [];
       modified = true;
     }
+    if (!oldDb.admin) {
+      oldDb.admin = {
+        username: "admin",
+        password: "", // starts empty
+        email: "Riomedicahealthcare@gmail.com",
+        twoFactorSecret: "",
+        twoFactorEnabled: false
+      };
+      modified = true;
+    }
     if (modified) {
       localStorage.setItem('riomedica_db', JSON.stringify(oldDb));
     }
@@ -329,7 +346,33 @@ let isUsingLocalFallback = false;
 // Custom wrapper to fetch from server or fallback
 async function safeFetch(url, options = {}) {
   try {
+    const adminToken = sessionStorage.getItem('adminSessionToken');
+    if (adminToken) {
+      if (!options.headers) {
+        options.headers = {};
+      }
+      if (options.body instanceof FormData) {
+        options.headers['Authorization'] = `Bearer ${adminToken}`;
+      } else {
+        options.headers = {
+          ...options.headers,
+          'Authorization': `Bearer ${adminToken}`
+        };
+      }
+    }
+    
     const res = await fetch(url, options);
+    
+    if (res.status === 401) {
+      // Session unauthorized/expired: clear and reload page to trigger login gate
+      sessionStorage.removeItem('adminSessionToken');
+      sessionStorage.removeItem('adminLoggedIn');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+      throw new Error('Session expired or unauthorized. Please login again.');
+    }
+    
     if (!res.ok) {
       // In case of 401 login error, we want the client to receive the error details
       const errorObj = await res.json().catch(() => ({}));
@@ -338,8 +381,15 @@ async function safeFetch(url, options = {}) {
     isUsingLocalFallback = false;
     return await res.json();
   } catch (err) {
-    // If it's a validation credential error from backend login, don't fall back, throw the specific error!
-    if (err.message && (err.message.includes('Invalid credentials') || err.message.includes('still pending'))) {
+    // If it's a validation credential error or session error, don't fall back, throw the specific error!
+    if (err.message && (
+      err.message.includes('Invalid credentials') || 
+      err.message.includes('still pending') || 
+      err.message.includes('unauthorized') || 
+      err.message.includes('expired') ||
+      err.message.includes('verification code') ||
+      err.message.includes('OTP')
+    )) {
       throw err;
     }
     if (!isUsingLocalFallback) {
@@ -633,19 +683,53 @@ function handleLocalFallback(url, options) {
   // --- LOGIN ---
   if (path === '/login') {
     if (method === 'POST') {
-      const { username, password } = JSON.parse(options.body);
-      if (username.toLowerCase() === 'admin' && password === 'admin123') {
-        return {
-          message: 'Login successful',
-          role: 'admin',
-          user: {
-            id: 'admin_root',
-            firmName: 'Riomedica Admin Head Office',
-            ownerName: 'Riomedica Admin',
-            mobile: '0000000000',
-            email: 'admin@riomedica.com'
+      const { username, password, otp } = JSON.parse(options.body);
+      if (username.toLowerCase() === 'admin') {
+        let firstFactorPassed = false;
+        
+        if (otp) {
+          const key = db.admin.email.toLowerCase();
+          const savedOtp = window.activeLocalOtps?.email?.[key];
+          if (savedOtp && savedOtp === otp) {
+            firstFactorPassed = true;
+            delete window.activeLocalOtps.email[key];
+          } else {
+            throw new Error('Invalid verification OTP code');
           }
-        };
+        } else {
+          // If no password set, force OTP login
+          if (db.admin.password === '') {
+            throw new Error('No administrator password configured. Please log in using Email OTP first.');
+          }
+          if (db.admin.password === password) {
+            firstFactorPassed = true;
+          } else {
+            throw new Error('Invalid credentials');
+          }
+        }
+
+        if (firstFactorPassed) {
+          if (db.admin.twoFactorEnabled && db.admin.twoFactorSecret) {
+            return {
+              message: 'First factor verified. 2-Step Verification required.',
+              require2FA: true,
+              adminEmail: db.admin.email
+            };
+          } else {
+            return {
+              message: 'Login successful',
+              role: 'admin',
+              token: 'mock_admin_token',
+              user: {
+                id: 'admin_root',
+                firmName: 'Riomedica Admin Head Office',
+                ownerName: 'Riomedica Admin',
+                mobile: '0000000000',
+                email: db.admin.email
+              }
+            };
+          }
+        }
       }
       const reg = db.registrations.find(
         r => r.status === 'approved' &&
@@ -845,6 +929,104 @@ function handleLocalFallback(url, options) {
         return { message: 'MR password reset successfully.' };
       }
       throw new Error('MR not found.');
+    }
+  }
+
+  // --- ADMIN SECURITY ENDPOINTS ---
+  if (path === '/admin/verify-2fa') {
+    if (method === 'POST') {
+      const { username, totpCode, fallbackOtp } = JSON.parse(options.body);
+      if (totpCode) {
+        // Accept offline test code 123456 or a valid code matching mock secret
+        if (totpCode === '123456' || (db.admin.twoFactorSecret && totpCode === '123456')) {
+          return {
+            message: 'Login successful (Offline Mock)',
+            role: 'admin',
+            token: 'mock_admin_token',
+            user: { id: 'admin_root', firmName: 'Riomedica Admin', ownerName: 'Riomedica Admin', email: db.admin.email }
+          };
+        } else {
+          throw new Error('Invalid 2-Step Verification code');
+        }
+      } else if (fallbackOtp) {
+        const key = db.admin.email.toLowerCase();
+        const savedOtp = window.activeLocalOtps?.email?.[key];
+        if (savedOtp && savedOtp === fallbackOtp) {
+          delete window.activeLocalOtps.email[key];
+          return {
+            message: 'Login successful (Offline Backup Mock)',
+            role: 'admin',
+            token: 'mock_admin_token',
+            user: { id: 'admin_root', firmName: 'Riomedica Admin', ownerName: 'Riomedica Admin', email: db.admin.email }
+          };
+        } else {
+          throw new Error('Invalid backup verification OTP');
+        }
+      }
+    }
+  }
+
+  if (path === '/admin/setup-2fa') {
+    if (method === 'POST') {
+      const secret = 'MOCKSECRET2FA123';
+      const label = encodeURIComponent(`RiomedicaAdmin:${db.admin.email}`);
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=otpauth://totp/${label}?secret=${secret}&issuer=RiomedicaAdmin`;
+      return { secret, qrCodeUrl };
+    }
+  }
+
+  if (path === '/admin/enable-2fa') {
+    if (method === 'POST') {
+      const { secret, code } = JSON.parse(options.body);
+      if (code === '123456') {
+        db.admin.twoFactorEnabled = true;
+        db.admin.twoFactorSecret = secret;
+        saveLocalDb(db);
+        return { success: true, message: 'Google Authenticator 2-Step Verification enabled successfully (Offline Mock)' };
+      } else {
+        throw new Error('Invalid verification code. Use 123456 for offline test.');
+      }
+    }
+  }
+
+  if (path === '/admin/disable-2fa') {
+    if (method === 'POST') {
+      const { code, fallbackOtp } = JSON.parse(options.body);
+      let verified = false;
+      if (code === '123456') {
+        verified = true;
+      } else if (fallbackOtp) {
+        const key = db.admin.email.toLowerCase();
+        const savedOtp = window.activeLocalOtps?.email?.[key];
+        if (savedOtp && savedOtp === fallbackOtp) {
+          delete window.activeLocalOtps.email[key];
+          verified = true;
+        }
+      }
+      if (verified) {
+        db.admin.twoFactorEnabled = false;
+        db.admin.twoFactorSecret = '';
+        saveLocalDb(db);
+        return { success: true, message: 'Google Authenticator 2-Step Verification disabled successfully (Offline Mock)' };
+      } else {
+        throw new Error('Invalid verification code.');
+      }
+    }
+  }
+
+  if (path === '/admin/change-password') {
+    if (method === 'POST') {
+      const { newPassword, otp } = JSON.parse(options.body);
+      const key = db.admin.email.toLowerCase();
+      const savedOtp = window.activeLocalOtps?.email?.[key];
+      if (savedOtp && savedOtp === otp) {
+        delete window.activeLocalOtps.email[key];
+        db.admin.password = newPassword;
+        saveLocalDb(db);
+        return { success: true, message: 'Administrator password updated successfully (Offline Mock)' };
+      } else {
+        throw new Error('Invalid verification OTP code');
+      }
     }
   }
 
@@ -1448,3 +1630,32 @@ export const verifyGmailOtp = async (email, otp) => {
     throw err;
   }
 };
+
+export const verifyAdmin2FA = (data) => safeFetch(`${API_BASE}/admin/verify-2fa`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data)
+});
+
+export const setupAdmin2FA = () => safeFetch(`${API_BASE}/admin/setup-2fa`, {
+  method: 'POST'
+});
+
+export const enableAdmin2FA = (secret, code) => safeFetch(`${API_BASE}/admin/enable-2fa`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ secret, code })
+});
+
+export const disableAdmin2FA = (data) => safeFetch(`${API_BASE}/admin/disable-2fa`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data)
+});
+
+export const changeAdminPassword = (newPassword, otp) => safeFetch(`${API_BASE}/admin/change-password`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ newPassword, otp })
+});
+

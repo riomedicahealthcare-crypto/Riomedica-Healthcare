@@ -8,7 +8,9 @@ import {
   getOffers, addOffer, deleteOffer, getRegistrations, approveRegistration,
   denyRegistration, IMAGE_BASE, getLocalFallbackStatus, getBranding, updateBranding,
   getBanners, addBanner, deleteBanner, bulkImportProducts, getSettings, updateSettings,
-  getOrders, updateOrderStatus, deleteOrder
+  getOrders, updateOrderStatus, deleteOrder,
+  loginUser, sendGmailOtp,
+  verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword
 } from '../utils';
 import { 
   syncAllToFirebase, 
@@ -26,26 +28,139 @@ export default function AdminLayout() {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
     return sessionStorage.getItem('adminLoggedIn') === 'true';
   });
-  const [adminUsername, setAdminUsername] = useState('');
+
+  // --- Admin Login States ---
+  const [adminUsername, setAdminUsername] = useState('admin');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminLoginError, setAdminLoginError] = useState('');
+  const [loginMethod, setLoginMethod] = useState('otp'); // 'otp' | 'password'
+  const [adminOtp, setAdminOtp] = useState('');
+  const [adminOtpSent, setAdminOtpSent] = useState(false);
+  const [adminOtpLoading, setAdminOtpLoading] = useState(false);
+  const [adminLoginLoading, setAdminLoginLoading] = useState(false);
+  const [require2FA, setRequire2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [useBackupOtp, setUseBackupOtp] = useState(false);
+  const [backupOtpSent, setBackupOtpSent] = useState(false);
+  const [backupOtpCode, setBackupOtpCode] = useState('');
 
-  const handleAdminLogin = (e) => {
+  // --- Admin Security Panel States ---
+  const [securityStatus, setSecurityStatus] = useState({ twoFactorEnabled: false });
+  const [setup2FAData, setSetup2FAData] = useState(null);
+  const [setup2FACode, setSetup2FACode] = useState('');
+  const [setup2FALoading, setSetup2FALoading] = useState(false);
+  const [disable2FACode, setDisable2FACode] = useState('');
+  const [disable2FALoading, setDisable2FALoading] = useState(false);
+  const [useDisableBackupOtp, setUseDisableBackupOtp] = useState(false);
+  const [disableBackupOtpSent, setDisableBackupOtpSent] = useState(false);
+  const [disableBackupOtp, setDisableBackupOtp] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
+  const [changePwdOtp, setChangePwdOtp] = useState('');
+  const [changePwdOtpSent, setChangePwdOtpSent] = useState(false);
+  const [changePwdLoading, setChangePwdLoading] = useState(false);
+  const [securityMsg, setSecurityMsg] = useState({ type: '', text: '' });
+
+  const ADMIN_EMAIL = 'Riomedicahealthcare@gmail.com';
+
+  const handleSendAdminOtp = async () => {
+    setAdminOtpLoading(true);
+    setAdminLoginError('');
+    try {
+      await sendGmailOtp(ADMIN_EMAIL);
+      setAdminOtpSent(true);
+    } catch (err) {
+      setAdminLoginError('Failed to send OTP. Please try again.');
+    } finally {
+      setAdminOtpLoading(false);
+    }
+  };
+
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
-    if (adminUsername.toLowerCase() === 'admin' && adminPassword === 'admin123') {
+    setAdminLoginLoading(true);
+    setAdminLoginError('');
+    try {
+      const body = loginMethod === 'otp'
+        ? { username: 'admin', otp: adminOtp }
+        : { username: 'admin', password: adminPassword };
+      const data = await loginUser(body);
+      if (data.require2FA) {
+        setRequire2FA(true);
+        setAdminLoginLoading(false);
+        return;
+      }
+      if (data.token) {
+        sessionStorage.setItem('adminSessionToken', data.token);
+      }
       setIsAdminLoggedIn(true);
       sessionStorage.setItem('adminLoggedIn', 'true');
       setAdminLoginError('');
-    } else {
-      setAdminLoginError('Invalid Administrator credentials.');
+    } catch (err) {
+      setAdminLoginError(err.message || 'Invalid credentials. Please try again.');
+    } finally {
+      setAdminLoginLoading(false);
+    }
+  };
+
+  const handleVerifyTOTP = async () => {
+    setAdminLoginLoading(true);
+    setAdminLoginError('');
+    try {
+      const data = await verifyAdmin2FA({ username: 'admin', totpCode });
+      if (data.token) sessionStorage.setItem('adminSessionToken', data.token);
+      setIsAdminLoggedIn(true);
+      sessionStorage.setItem('adminLoggedIn', 'true');
+      setRequire2FA(false);
+    } catch (err) {
+      setAdminLoginError(err.message || 'Invalid 2FA code.');
+    } finally {
+      setAdminLoginLoading(false);
+    }
+  };
+
+  const handleSendBackupOtp = async () => {
+    setAdminLoginLoading(true);
+    setAdminLoginError('');
+    try {
+      await sendGmailOtp(ADMIN_EMAIL);
+      setBackupOtpSent(true);
+    } catch (err) {
+      setAdminLoginError('Failed to send backup OTP. Try again.');
+    } finally {
+      setAdminLoginLoading(false);
+    }
+  };
+
+  const handleVerifyBackupOtp = async () => {
+    setAdminLoginLoading(true);
+    setAdminLoginError('');
+    try {
+      const data = await verifyAdmin2FA({ username: 'admin', fallbackOtp: backupOtpCode });
+      if (data.token) sessionStorage.setItem('adminSessionToken', data.token);
+      setIsAdminLoggedIn(true);
+      sessionStorage.setItem('adminLoggedIn', 'true');
+      setRequire2FA(false);
+    } catch (err) {
+      setAdminLoginError(err.message || 'Invalid backup OTP.');
+    } finally {
+      setAdminLoginLoading(false);
     }
   };
 
   const handleAdminLogout = () => {
     setIsAdminLoggedIn(false);
     sessionStorage.removeItem('adminLoggedIn');
-    setAdminUsername('');
+    sessionStorage.removeItem('adminSessionToken');
+    setAdminUsername('admin');
     setAdminPassword('');
+    setAdminOtp('');
+    setAdminOtpSent(false);
+    setRequire2FA(false);
+    setTotpCode('');
+    setUseBackupOtp(false);
+    setBackupOtpSent(false);
+    setBackupOtpCode('');
   };
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -1362,167 +1477,179 @@ export default function AdminLayout() {
 
 
   if (!isAdminLoggedIn) {
+    const inputStyle = {
+      width: '100%', padding: '13px 16px 13px 44px', background: 'rgba(30, 41, 59, 0.5)',
+      border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '12px', color: '#fff',
+      fontSize: '0.93rem', outline: 'none', transition: 'all 0.3s ease', boxSizing: 'border-box'
+    };
+    const labelStyle = { display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' };
+
     return (
-      <div 
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '100vh',
-          width: '100vw',
-          background: 'radial-gradient(circle at top right, #09121a, #04080c)',
-          fontFamily: 'var(--font-primary)',
-          padding: '20px',
-          boxSizing: 'border-box'
-        }}
-      >
-        <div 
-          style={{
-            background: 'rgba(10, 15, 30, 0.75)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(16, 185, 129, 0.2)',
-            borderRadius: '24px',
-            padding: '40px 32px',
-            width: '100%',
-            maxWidth: '420px',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(16, 185, 129, 0.1)',
-            textAlign: 'center'
-          }}
-        >
-          {/* Logo / Icon */}
-          <div 
-            style={{
-              background: 'linear-gradient(135deg, #10b981, #059669)',
-              width: '64px',
-              height: '64px',
-              borderRadius: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 24px',
-              boxShadow: '0 8px 20px rgba(16, 185, 129, 0.3)'
-            }}
-          >
-            <Icons.ShieldAlert size={32} color="#fff" />
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', width: '100vw', background: 'radial-gradient(ellipse at 70% 10%, #0d2318 0%, #04080c 60%)', fontFamily: 'var(--font-primary)', padding: '20px', boxSizing: 'border-box' }}>
+        <div style={{ background: 'rgba(10, 15, 30, 0.78)', backdropFilter: 'blur(24px)', border: '1px solid rgba(16, 185, 129, 0.22)', borderRadius: '28px', padding: '40px 32px', width: '100%', maxWidth: '440px', boxShadow: '0 24px 60px rgba(0,0,0,0.55), 0 0 50px rgba(16,185,129,0.09)', textAlign: 'center' }}>
+
+          {/* Icon */}
+          <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', width: '64px', height: '64px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', boxShadow: '0 8px 24px rgba(16,185,129,0.3)' }}>
+            <Icons.ShieldCheck size={32} color="#fff" />
           </div>
+          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', marginBottom: '4px', letterSpacing: '-0.5px' }}>Riomedica Admin</h2>
+          <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '28px' }}>Secure Administrator Portal — Authorized Access Only</p>
 
-          <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
-            Riomedica Admin
-          </h2>
-          <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '32px' }}>
-            Authorized Administrator Portal Access Only
-          </p>
+          {!require2FA ? (
+            <>
+              {/* Login Method Tabs */}
+              <div style={{ display: 'flex', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: '24px' }}>
+                <button onClick={() => { setLoginMethod('otp'); setAdminLoginError(''); }} style={{ flex: 1, padding: '11px', background: loginMethod === 'otp' ? 'linear-gradient(135deg,#10b981,#059669)' : 'transparent', color: loginMethod === 'otp' ? '#fff' : '#64748b', fontWeight: 700, fontSize: '0.82rem', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
+                  <Icons.Mail size={15} /> Email OTP
+                </button>
+                <button onClick={() => { setLoginMethod('password'); setAdminLoginError(''); }} style={{ flex: 1, padding: '11px', background: loginMethod === 'password' ? 'linear-gradient(135deg,#10b981,#059669)' : 'transparent', color: loginMethod === 'password' ? '#fff' : '#64748b', fontWeight: 700, fontSize: '0.82rem', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
+                  <Icons.Lock size={15} /> Password
+                </button>
+              </div>
 
-          <form onSubmit={handleAdminLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <form onSubmit={handleAdminLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+
+                {loginMethod === 'otp' ? (
+                  <div>
+                    <label style={labelStyle}>Registered Admin Email</label>
+                    <div style={{ position: 'relative', marginBottom: '12px' }}>
+                      <Icons.Mail size={15} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                      <input type="email" value={ADMIN_EMAIL} readOnly style={{ ...inputStyle, color: '#94a3b8', cursor: 'not-allowed' }} />
+                    </div>
+                    <label style={labelStyle}>One-Time Passcode</label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <Icons.KeyRound size={15} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                        <input type="text" inputMode="numeric" maxLength={6} placeholder="6-digit OTP" value={adminOtp} onChange={e => setAdminOtp(e.target.value)} required style={{ ...inputStyle, letterSpacing: '4px', fontWeight: 700, fontSize: '1.1rem' }}
+                          onFocus={e => { e.target.style.borderColor='#10b981'; e.target.style.boxShadow='0 0 10px rgba(16,185,129,0.18)'; }}
+                          onBlur={e => { e.target.style.borderColor='rgba(16,185,129,0.2)'; e.target.style.boxShadow='none'; }}
+                        />
+                      </div>
+                      <button type="button" onClick={handleSendAdminOtp} disabled={adminOtpLoading || adminOtpSent}
+                        style={{ padding: '0 18px', background: adminOtpSent ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '12px', color: adminOtpSent ? '#34d399' : '#10b981', fontWeight: 700, fontSize: '0.78rem', cursor: adminOtpSent ? 'default' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {adminOtpLoading ? '...' : adminOtpSent ? '✓ Sent' : 'Send OTP'}
+                      </button>
+                    </div>
+                    {adminOtpSent && <p style={{ color: '#34d399', fontSize: '0.75rem', marginTop: '8px' }}>✓ OTP sent to {ADMIN_EMAIL}</p>}
+                  </div>
+                ) : (
+                  <div>
+                    <label style={labelStyle}>Admin Password</label>
+                    <div style={{ position: 'relative' }}>
+                      <Icons.Lock size={15} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                      <input type="password" placeholder="Enter administrator password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} required style={inputStyle}
+                        onFocus={e => { e.target.style.borderColor='#10b981'; e.target.style.boxShadow='0 0 10px rgba(16,185,129,0.18)'; }}
+                        onBlur={e => { e.target.style.borderColor='rgba(16,185,129,0.2)'; e.target.style.boxShadow='none'; }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {adminLoginError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '12px 14px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', color: '#f87171', fontSize: '0.83rem' }}>
+                    <Icons.AlertTriangle size={15} style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <span>{adminLoginError}</span>
+                  </div>
+                )}
+
+                <button type="submit" disabled={adminLoginLoading || (loginMethod === 'otp' && !adminOtpSent)}
+                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, fontSize: '1rem', border: 'none', borderRadius: '12px', padding: '15px', cursor: (adminLoginLoading || (loginMethod === 'otp' && !adminOtpSent)) ? 'not-allowed' : 'pointer', opacity: (adminLoginLoading || (loginMethod === 'otp' && !adminOtpSent)) ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.25s' }}
+                  onMouseOver={e => { if (!adminLoginLoading) { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 8px 24px rgba(16,185,129,0.3)'; }}}
+                  onMouseOut={e => { e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; }}
+                >
+                  {adminLoginLoading ? <><Icons.Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Verifying...</> : <><Icons.LogIn size={18} /> Sign In to Portal</>}
+                </button>
+              </form>
+            </>
+          ) : (
+            /* 2FA Verification Overlay */
             <div style={{ textAlign: 'left' }}>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
-                Admin Username
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Icons.User size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input 
-                  type="text"
-                  placeholder="Enter username"
-                  value={adminUsername}
-                  onChange={(e) => setAdminUsername(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '14px 16px 14px 44px',
-                    background: 'rgba(30, 41, 59, 0.5)',
-                    border: '1px solid rgba(16, 185, 129, 0.2)',
-                    borderRadius: '12px',
-                    color: '#fff',
-                    fontSize: '0.95rem',
-                    outline: 'none',
-                    transition: 'all 0.3s ease',
-                    boxSizing: 'border-box'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#10b981';
-                    e.target.style.boxShadow = '0 0 10px rgba(16, 185, 129, 0.2)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(16, 185, 129, 0.2)';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                />
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{ width: '52px', height: '52px', borderRadius: '14px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                  <Icons.ShieldCheck size={26} color="#10b981" />
+                </div>
+                <h3 style={{ color: '#fff', fontSize: '1.15rem', fontWeight: 800, marginBottom: '4px' }}>2-Step Verification</h3>
+                <p style={{ color: '#64748b', fontSize: '0.82rem' }}>{useBackupOtp ? 'Enter the backup OTP sent to your email.' : 'Enter the 6-digit code from Google Authenticator.'}</p>
               </div>
+
+              {!useBackupOtp ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={labelStyle}>Authenticator Code</label>
+                    <div style={{ position: 'relative' }}>
+                      <Icons.Smartphone size={15} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                      <input type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={totpCode} onChange={e => setTotpCode(e.target.value)} style={{ ...inputStyle, letterSpacing: '8px', fontWeight: 800, fontSize: '1.3rem', textAlign: 'center', paddingLeft: '16px' }}
+                        onFocus={e => { e.target.style.borderColor='#10b981'; e.target.style.boxShadow='0 0 12px rgba(16,185,129,0.2)'; }}
+                        onBlur={e => { e.target.style.borderColor='rgba(16,185,129,0.2)'; e.target.style.boxShadow='none'; }}
+                        onKeyDown={e => { if (e.key === 'Enter' && totpCode.length === 6) handleVerifyTOTP(); }}
+                      />
+                    </div>
+                  </div>
+
+                  {adminLoginError && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', color: '#f87171', fontSize: '0.82rem' }}>
+                      <Icons.AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '2px' }} /><span>{adminLoginError}</span>
+                    </div>
+                  )}
+
+                  <button onClick={handleVerifyTOTP} disabled={totpCode.length !== 6 || adminLoginLoading}
+                    style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: '12px', padding: '14px', cursor: totpCode.length !== 6 ? 'not-allowed' : 'pointer', opacity: totpCode.length !== 6 ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.95rem', transition: 'all 0.2s' }}>
+                    {adminLoginLoading ? 'Verifying...' : <><Icons.ShieldCheck size={16} /> Verify & Sign In</>}
+                  </button>
+
+                  <button onClick={() => { setUseBackupOtp(true); setAdminLoginError(''); }} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.78rem', cursor: 'pointer', textDecoration: 'underline', textAlign: 'center', padding: '4px' }}>
+                    Can't access authenticator? Use backup email OTP
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {!backupOtpSent ? (
+                    <>
+                      <p style={{ color: '#94a3b8', fontSize: '0.83rem', textAlign: 'center' }}>A backup OTP will be sent to <strong style={{ color: '#34d399' }}>{ADMIN_EMAIL}</strong></p>
+                      <button onClick={handleSendBackupOtp} disabled={adminLoginLoading}
+                        style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', fontWeight: 700, borderRadius: '12px', padding: '13px', cursor: 'pointer', fontSize: '0.92rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        <Icons.Mail size={16} /> Send Backup OTP
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ color: '#34d399', fontSize: '0.78rem', textAlign: 'center' }}>✓ Backup OTP sent to {ADMIN_EMAIL}</p>
+                      <div>
+                        <label style={labelStyle}>Backup OTP</label>
+                        <div style={{ position: 'relative' }}>
+                          <Icons.KeyRound size={15} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                          <input type="text" inputMode="numeric" maxLength={6} placeholder="6-digit backup OTP" value={backupOtpCode} onChange={e => setBackupOtpCode(e.target.value)} style={{ ...inputStyle, letterSpacing: '4px', fontWeight: 700, textAlign: 'center', paddingLeft: '16px' }}
+                            onFocus={e => { e.target.style.borderColor='#10b981'; e.target.style.boxShadow='0 0 10px rgba(16,185,129,0.18)'; }}
+                            onBlur={e => { e.target.style.borderColor='rgba(16,185,129,0.2)'; e.target.style.boxShadow='none'; }}
+                          />
+                        </div>
+                      </div>
+
+                      {adminLoginError && (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', color: '#f87171', fontSize: '0.82rem' }}>
+                          <Icons.AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '2px' }} /><span>{adminLoginError}</span>
+                        </div>
+                      )}
+
+                      <button onClick={handleVerifyBackupOtp} disabled={backupOtpCode.length < 4 || adminLoginLoading}
+                        style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: '12px', padding: '14px', cursor: backupOtpCode.length < 4 ? 'not-allowed' : 'pointer', opacity: backupOtpCode.length < 4 ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.93rem' }}>
+                        {adminLoginLoading ? 'Verifying...' : <><Icons.ShieldCheck size={16} /> Verify Backup OTP</>}
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => { setUseBackupOtp(false); setBackupOtpSent(false); setBackupOtpCode(''); setAdminLoginError(''); }} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.76rem', cursor: 'pointer', textDecoration: 'underline', textAlign: 'center' }}>
+                    ← Back to Authenticator
+                  </button>
+                </div>
+              )}
+
+              <button onClick={() => { setRequire2FA(false); setTotpCode(''); setUseBackupOtp(false); setBackupOtpSent(false); setBackupOtpCode(''); setAdminLoginError(''); }} style={{ width: '100%', marginTop: '12px', background: 'transparent', border: 'none', color: '#475569', fontSize: '0.76rem', cursor: 'pointer', textDecoration: 'underline' }}>
+                ← Back to Sign-in
+              </button>
             </div>
+          )}
 
-            <div style={{ textAlign: 'left' }}>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
-                Admin Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Icons.Lock size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input 
-                  type="password"
-                  placeholder="Enter password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '14px 16px 14px 44px',
-                    background: 'rgba(30, 41, 59, 0.5)',
-                    border: '1px solid rgba(16, 185, 129, 0.2)',
-                    borderRadius: '12px',
-                    color: '#fff',
-                    fontSize: '0.95rem',
-                    outline: 'none',
-                    transition: 'all 0.3s ease',
-                    boxSizing: 'border-box'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#10b981';
-                    e.target.style.boxShadow = '0 0 10px rgba(16, 185, 129, 0.2)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(16, 185, 129, 0.2)';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                />
-              </div>
-            </div>
-
-            {adminLoginError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', color: '#f87171', fontSize: '0.85rem', textAlign: 'left' }}>
-                <Icons.AlertTriangle size={16} style={{ flexShrink: 0 }} />
-                <span>{adminLoginError}</span>
-              </div>
-            )}
-
-            <button 
-              type="submit"
-              style={{
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: '1rem',
-                border: 'none',
-                borderRadius: '12px',
-                padding: '16px',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.35)';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.transform = 'none';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.2)';
-              }}
-            >
-              <Icons.LogIn size={18} /> Sign In to Portal
-            </button>
-          </form>
+          <p style={{ color: '#1e293b', fontSize: '0.7rem', marginTop: '24px' }}>Riomedica Healthcare — Admin Portal v2.0 — Secured</p>
         </div>
       </div>
     );
@@ -1655,6 +1782,16 @@ export default function AdminLayout() {
               <Icons.ShoppingCart size={18} /> B2B Orders
             </button>
             <button 
+              className={`admin-menu-item ${activeMenu === 'security' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu('security');
+                setIsMobileMenuOpen(false);
+              }}
+              style={activeMenu === 'security' ? {} : { color: '#94a3b8' }}
+            >
+              <Icons.ShieldCheck size={18} /> Security
+            </button>
+            <button 
               className="admin-menu-item"
               onClick={() => {
                 handleAdminLogout();
@@ -1751,6 +1888,12 @@ export default function AdminLayout() {
               <>
                 <h2>B2B Orders Tracker</h2>
                 <p>Monitor incoming medicine order receipts, total amounts, and toggle order status.</p>
+              </>
+            )}
+            {activeMenu === 'security' && (
+              <>
+                <h2>Security & Access Control</h2>
+                <p>Manage 2-Step Verification, Google Authenticator, and administrator password settings.</p>
               </>
             )}
           </div>
@@ -3085,6 +3228,302 @@ export default function AdminLayout() {
             </div>
           </div>
         )}
+
+        {/* --- MENU: Security & Access Control --- */}
+        {activeMenu === 'security' && (() => {
+          const cardStyle = { background: 'var(--bg-admin-card, rgba(10,15,30,0.7))', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '18px', padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.25s ease-out' };
+          const sectionLabel = { fontSize: '0.7rem', fontWeight: 800, color: '#34d399', textTransform: 'uppercase', letterSpacing: '1.2px', marginBottom: '6px', display: 'block' };
+          const fieldStyle = { width: '100%', padding: '12px 16px 12px 42px', background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '10px', color: '#fff', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' };
+          const btnPrimary = { background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: '10px', padding: '12px 22px', cursor: 'pointer', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '7px', transition: 'all 0.2s' };
+          const btnSecondary = { background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981', fontWeight: 700, borderRadius: '10px', padding: '11px 20px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '7px' };
+          const btnDanger = { background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171', fontWeight: 700, borderRadius: '10px', padding: '11px 20px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '7px' };
+
+          const handle2FASetup = async () => {
+            setSetup2FALoading(true);
+            setSecurityMsg({ type: '', text: '' });
+            try {
+              const data = await setupAdmin2FA();
+              setSetup2FAData(data);
+            } catch (err) {
+              setSecurityMsg({ type: 'error', text: 'Failed to generate 2FA setup. Try again.' });
+            } finally {
+              setSetup2FALoading(false);
+            }
+          };
+
+          const handleEnable2FA = async () => {
+            if (!setup2FAData || !setup2FACode) return;
+            setSetup2FALoading(true);
+            setSecurityMsg({ type: '', text: '' });
+            try {
+              const res = await enableAdmin2FA(setup2FAData.secret, setup2FACode);
+              setSecurityStatus({ twoFactorEnabled: true });
+              setSetup2FAData(null);
+              setSetup2FACode('');
+              setSecurityMsg({ type: 'success', text: res.message || 'Google Authenticator 2FA enabled successfully!' });
+            } catch (err) {
+              setSecurityMsg({ type: 'error', text: err.message || 'Invalid code. Please try again.' });
+            } finally {
+              setSetup2FALoading(false);
+            }
+          };
+
+          const handleDisable2FA = async () => {
+            setDisable2FALoading(true);
+            setSecurityMsg({ type: '', text: '' });
+            try {
+              const payload = useDisableBackupOtp ? { fallbackOtp: disableBackupOtp } : { code: disable2FACode };
+              const res = await disableAdmin2FA(payload);
+              setSecurityStatus({ twoFactorEnabled: false });
+              setDisable2FACode('');
+              setDisableBackupOtp('');
+              setUseDisableBackupOtp(false);
+              setDisableBackupOtpSent(false);
+              setSecurityMsg({ type: 'success', text: res.message || '2FA disabled successfully.' });
+            } catch (err) {
+              setSecurityMsg({ type: 'error', text: err.message || 'Invalid code.' });
+            } finally {
+              setDisable2FALoading(false);
+            }
+          };
+
+          const handleSendChangePwdOtp = async () => {
+            setChangePwdLoading(true);
+            setSecurityMsg({ type: '', text: '' });
+            try {
+              await sendGmailOtp(ADMIN_EMAIL);
+              setChangePwdOtpSent(true);
+              setSecurityMsg({ type: 'success', text: `OTP sent to ${ADMIN_EMAIL}` });
+            } catch (err) {
+              setSecurityMsg({ type: 'error', text: 'Failed to send OTP. Try again.' });
+            } finally {
+              setChangePwdLoading(false);
+            }
+          };
+
+          const handleChangePassword = async () => {
+            if (!newAdminPassword || newAdminPassword !== confirmAdminPassword) {
+              setSecurityMsg({ type: 'error', text: 'Passwords do not match or are empty.' });
+              return;
+            }
+            if (!changePwdOtp) {
+              setSecurityMsg({ type: 'error', text: 'OTP is required to change password.' });
+              return;
+            }
+            setChangePwdLoading(true);
+            setSecurityMsg({ type: '', text: '' });
+            try {
+              const res = await changeAdminPassword(newAdminPassword, changePwdOtp);
+              setNewAdminPassword('');
+              setConfirmAdminPassword('');
+              setChangePwdOtp('');
+              setChangePwdOtpSent(false);
+              setSecurityMsg({ type: 'success', text: res.message || 'Password changed successfully!' });
+            } catch (err) {
+              setSecurityMsg({ type: 'error', text: err.message || 'Failed to change password.' });
+            } finally {
+              setChangePwdLoading(false);
+            }
+          };
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '720px', animation: 'fadeIn 0.25s ease-out' }}>
+
+              {/* Global feedback message */}
+              {securityMsg.text && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 18px', background: securityMsg.type === 'success' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${securityMsg.type === 'success' ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '12px', color: securityMsg.type === 'success' ? '#34d399' : '#f87171', fontSize: '0.88rem', fontWeight: 600 }}>
+                  {securityMsg.type === 'success' ? <Icons.CheckCircle2 size={18} /> : <Icons.AlertTriangle size={18} />}
+                  {securityMsg.text}
+                </div>
+              )}
+
+              {/* ---- CARD 1: 2FA Status & Setup ---- */}
+              <div style={cardStyle}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Icons.Smartphone size={22} color="#10b981" />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>Google Authenticator 2FA</h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>2-Step Verification via TOTP authenticator app</p>
+                    </div>
+                  </div>
+                  <span style={{ padding: '5px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 800, background: securityStatus.twoFactorEnabled ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.15)', color: securityStatus.twoFactorEnabled ? '#10b981' : '#64748b', border: `1px solid ${securityStatus.twoFactorEnabled ? 'rgba(16,185,129,0.3)' : 'rgba(100,116,139,0.2)'}` }}>
+                    {securityStatus.twoFactorEnabled ? '✓ ENABLED' : '✗ DISABLED'}
+                  </span>
+                </div>
+
+                {!securityStatus.twoFactorEnabled ? (
+                  <>
+                    {!setup2FAData ? (
+                      <button onClick={handle2FASetup} disabled={setup2FALoading} style={btnPrimary}>
+                        {setup2FALoading ? <Icons.Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Icons.QrCode size={16} />}
+                        {setup2FALoading ? 'Generating...' : 'Setup Google Authenticator'}
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <img src={setup2FAData.qrCodeUrl} alt="2FA QR Code" style={{ width: '160px', height: '160px', borderRadius: '12px', border: '2px solid rgba(16,185,129,0.3)', display: 'block' }} />
+                            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px' }}>Scan with Google Authenticator</p>
+                          </div>
+                          <div style={{ flex: 1, minWidth: '200px' }}>
+                            <span style={sectionLabel}>Manual Entry Key</span>
+                            <div style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', padding: '10px 14px', fontFamily: 'monospace', fontSize: '0.85rem', color: '#34d399', letterSpacing: '2px', wordBreak: 'break-all' }}>
+                              {setup2FAData.secret}
+                            </div>
+                            <p style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '8px', lineHeight: '1.5' }}>
+                              Open Google Authenticator → tap + → scan QR or enter the key above. Then enter the 6-digit code shown in the app to verify and activate.
+                            </p>
+                          </div>
+                        </div>
+                        <div>
+                          <span style={sectionLabel}>Verification Code from App</span>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', flex: 1 }}>
+                              <Icons.KeyRound size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                              <input type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={setup2FACode} onChange={e => setSetup2FACode(e.target.value)} style={{ ...fieldStyle, letterSpacing: '6px', fontWeight: 800, textAlign: 'center', fontSize: '1.1rem' }} />
+                            </div>
+                            <button onClick={handleEnable2FA} disabled={setup2FACode.length !== 6 || setup2FALoading} style={{ ...btnPrimary, opacity: setup2FACode.length !== 6 ? 0.6 : 1, cursor: setup2FACode.length !== 6 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+                              {setup2FALoading ? 'Verifying...' : <><Icons.ShieldCheck size={15} /> Activate 2FA</>}
+                            </button>
+                            <button onClick={() => { setSetup2FAData(null); setSetup2FACode(''); }} style={{ ...btnDanger, whiteSpace: 'nowrap' }}>
+                              <Icons.X size={15} /> Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '10px', padding: '14px 16px' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: 0 }}>
+                        <Icons.ShieldCheck size={14} style={{ display: 'inline', marginRight: '6px', color: '#10b981', verticalAlign: 'middle' }} />
+                        Google Authenticator is active. Every login requires a valid TOTP code from your authenticator app.
+                      </p>
+                    </div>
+                    <div>
+                      <span style={sectionLabel}>Disable 2FA — Enter Authenticator Code</span>
+                      {!useDisableBackupOtp ? (
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div style={{ position: 'relative', flex: 1, minWidth: '150px' }}>
+                            <Icons.Smartphone size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                            <input type="text" inputMode="numeric" maxLength={6} placeholder="6-digit TOTP code" value={disable2FACode} onChange={e => setDisable2FACode(e.target.value)} style={{ ...fieldStyle, letterSpacing: '4px', fontWeight: 700 }} />
+                          </div>
+                          <button onClick={handleDisable2FA} disabled={disable2FACode.length !== 6 || disable2FALoading} style={{ ...btnDanger, opacity: disable2FACode.length !== 6 ? 0.6 : 1, cursor: disable2FACode.length !== 6 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+                            {disable2FALoading ? 'Disabling...' : <><Icons.ShieldOff size={15} /> Disable 2FA</>}
+                          </button>
+                          <button onClick={() => setUseDisableBackupOtp(true)} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.76rem', cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
+                            Use backup email OTP
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {!disableBackupOtpSent ? (
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                              <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: 0 }}>Send a backup OTP to <strong style={{ color: '#34d399' }}>{ADMIN_EMAIL}</strong> to disable 2FA.</p>
+                              <button onClick={async () => { try { await sendGmailOtp(ADMIN_EMAIL); setDisableBackupOtpSent(true); } catch { setSecurityMsg({ type: 'error', text: 'Failed to send OTP.' }); } }} style={{ ...btnSecondary, whiteSpace: 'nowrap' }}>
+                                <Icons.Mail size={14} /> Send OTP
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <div style={{ position: 'relative', flex: 1, minWidth: '150px' }}>
+                                <Icons.KeyRound size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                                <input type="text" inputMode="numeric" maxLength={6} placeholder="Backup OTP" value={disableBackupOtp} onChange={e => setDisableBackupOtp(e.target.value)} style={{ ...fieldStyle, letterSpacing: '4px', fontWeight: 700 }} />
+                              </div>
+                              <button onClick={handleDisable2FA} disabled={disableBackupOtp.length < 4 || disable2FALoading} style={{ ...btnDanger, opacity: disableBackupOtp.length < 4 ? 0.6 : 1, cursor: disableBackupOtp.length < 4 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+                                {disable2FALoading ? 'Disabling...' : <><Icons.ShieldOff size={15} /> Disable 2FA</>}
+                              </button>
+                            </div>
+                          )}
+                          <button onClick={() => { setUseDisableBackupOtp(false); setDisableBackupOtpSent(false); setDisableBackupOtp(''); }} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline', textAlign: 'left' }}>
+                            ← Back to TOTP code
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ---- CARD 2: Change Admin Password ---- */}
+              <div style={cardStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icons.KeyRound size={22} color="#10b981" />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>Change Administrator Password</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>Requires email OTP verification to {ADMIN_EMAIL}</p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <span style={sectionLabel}>New Password</span>
+                    <div style={{ position: 'relative' }}>
+                      <Icons.Lock size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                      <input type="password" placeholder="Enter new password" value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} style={fieldStyle} />
+                    </div>
+                  </div>
+                  <div>
+                    <span style={sectionLabel}>Confirm Password</span>
+                    <div style={{ position: 'relative' }}>
+                      <Icons.Lock size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                      <input type="password" placeholder="Confirm new password" value={confirmAdminPassword} onChange={e => setConfirmAdminPassword(e.target.value)} style={{ ...fieldStyle, borderColor: confirmAdminPassword && newAdminPassword !== confirmAdminPassword ? 'rgba(239,68,68,0.5)' : 'rgba(16,185,129,0.2)' }} />
+                    </div>
+                    {confirmAdminPassword && newAdminPassword !== confirmAdminPassword && (
+                      <p style={{ color: '#f87171', fontSize: '0.72rem', marginTop: '4px' }}>Passwords do not match</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={sectionLabel}>Gmail OTP Verification</span>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative', flex: 1, minWidth: '150px' }}>
+                      <Icons.KeyRound size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                      <input type="text" inputMode="numeric" maxLength={6} placeholder="6-digit OTP" value={changePwdOtp} onChange={e => setChangePwdOtp(e.target.value)} style={{ ...fieldStyle, letterSpacing: '4px', fontWeight: 700 }} />
+                    </div>
+                    <button onClick={handleSendChangePwdOtp} disabled={changePwdLoading || changePwdOtpSent} style={{ ...btnSecondary, opacity: changePwdOtpSent ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                      {changePwdOtpSent ? <><Icons.Check size={14} /> Sent</> : <><Icons.Mail size={14} /> Send OTP</>}
+                    </button>
+                  </div>
+                  {changePwdOtpSent && <p style={{ color: '#34d399', fontSize: '0.73rem', marginTop: '6px' }}>✓ OTP sent to {ADMIN_EMAIL}. Check your inbox.</p>}
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button onClick={handleChangePassword} disabled={changePwdLoading || !changePwdOtpSent || !newAdminPassword || newAdminPassword !== confirmAdminPassword} style={{ ...btnPrimary, opacity: (changePwdLoading || !changePwdOtpSent || !newAdminPassword || newAdminPassword !== confirmAdminPassword) ? 0.55 : 1, cursor: (!changePwdOtpSent || !newAdminPassword || newAdminPassword !== confirmAdminPassword) ? 'not-allowed' : 'pointer' }}>
+                    {changePwdLoading ? <><Icons.Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Updating...</> : <><Icons.ShieldCheck size={15} /> Update Password</>}
+                  </button>
+                  <button onClick={() => { setNewAdminPassword(''); setConfirmAdminPassword(''); setChangePwdOtp(''); setChangePwdOtpSent(false); setSecurityMsg({ type: '', text: '' }); }} style={{ ...btnSecondary }}>
+                    <Icons.RotateCcw size={15} /> Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* ---- CARD 3: Security Info ---- */}
+              <div style={{ ...cardStyle, background: 'rgba(16,185,129,0.04)', borderColor: 'rgba(16,185,129,0.12)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                  <Icons.Info size={20} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div>
+                    <h4 style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 8px' }}>Security Notes</h4>
+                    <ul style={{ color: '#64748b', fontSize: '0.8rem', lineHeight: '1.8', margin: 0, paddingLeft: '18px' }}>
+                      <li>All admin write operations (products, orders, settings, banners) require a valid session token.</li>
+                      <li>When 2FA is enabled, every login requires your Google Authenticator code <em>after</em> first-factor verification.</li>
+                      <li>Password changes always require an email OTP sent to <strong style={{ color: '#34d399' }}>{ADMIN_EMAIL}</strong>.</li>
+                      <li>Backup email OTP can be used if Google Authenticator is unavailable.</li>
+                      <li>Sessions are invalidated on logout and are not persisted across server restarts.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* --- MODAL: Add/Edit Product Form --- */}

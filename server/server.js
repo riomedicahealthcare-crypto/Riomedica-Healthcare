@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import nodemailer from 'nodemailer';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, update } from 'firebase/database';
-
+import crypto from 'crypto';
 
 // ES Module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -28,20 +28,130 @@ if (!fs.existsSync(uploadDir)) {
 }
 app.use('/uploads', express.static(uploadDir));
 
+
 // Ensure db.json exists
 const dbPath = path.join(__dirname, 'data', 'db.json');
 if (!fs.existsSync(path.dirname(dbPath))) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 
+// Native base32 decoding for Google Authenticator TOTP secrets
+function base32Decode(base32) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let clean = base32.toUpperCase().replace(/=+$/, '');
+  let length = clean.length;
+  let bits = 0;
+  let value = 0;
+  let index = 0;
+  const buffer = Buffer.alloc(Math.floor((length * 5) / 8));
+
+  for (let i = 0; i < length; i++) {
+    const val = alphabet.indexOf(clean[i]);
+    if (val === -1) throw new Error('Invalid base32 character');
+    value = (value << 5) | val;
+    bits += 5;
+    if (bits >= 8) {
+      buffer[index++] = (value >> (bits - 8)) & 255;
+      bits -= 8;
+    }
+  }
+  return buffer;
+}
+
+// Verify TOTP 6-digit code against base32 secret
+function verifyTOTP(secret, code, window = 1) {
+  if (!code || code.length !== 6) return false;
+  try {
+    const key = base32Decode(secret);
+    const epoch = Math.floor(Date.now() / 1000);
+    const currentCounter = Math.floor(epoch / 30);
+    
+    for (let i = -window; i <= window; i++) {
+      const counter = currentCounter + i;
+      const buffer = Buffer.alloc(8);
+      let tmp = counter;
+      for (let j = 7; j >= 0; j--) {
+        buffer[j] = tmp & 0xff;
+        tmp = tmp >> 8;
+      }
+
+      const hmac = crypto.createHmac('sha1', key);
+      hmac.update(buffer);
+      const hmacResult = hmac.digest();
+
+      const offset = hmacResult[hmacResult.length - 1] & 0xf;
+      const computedCodeVal =
+        ((hmacResult[offset] & 0x7f) << 24) |
+        ((hmacResult[offset + 1] & 0xff) << 16) |
+        ((hmacResult[offset + 2] & 0xff) << 8) |
+        (hmacResult[offset + 3] & 0xff);
+
+      const otp = (computedCodeVal % 1000000).toString().padStart(6, '0');
+      if (otp === code) return true;
+    }
+  } catch (err) {
+    console.error("Error verifying TOTP code:", err);
+  }
+  return false;
+}
+
+// Generate base32 secret key
+function generateBase32Secret(length = 16) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let secret = '';
+  for (let i = 0; i < length; i++) {
+    const rand = crypto.randomInt(0, alphabet.length);
+    secret += alphabet[rand];
+  }
+  return secret;
+}
+
+// Session authentication variables
+let activeAdminSessionToken = null;
+
+// Middleware to secure administrator-only API routes
+function requireAdminAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token || token !== activeAdminSessionToken) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid or expired administrator session' });
+  }
+  next();
+}
+
 // Database helper functions
 const readDb = () => {
   try {
     const data = fs.readFileSync(dbPath, 'utf8');
-    return JSON.parse(data);
+    const db = JSON.parse(data);
+    if (!db.admin) {
+      db.admin = {
+        username: "admin",
+        password: "", // starts empty (verify by email otp first to set it)
+        email: "Riomedicahealthcare@gmail.com",
+        twoFactorSecret: "",
+        twoFactorEnabled: false
+      };
+      fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+    }
+    return db;
   } catch (err) {
     console.error("Error reading database file, returning default structure", err);
-    return { categories: [], products: [], collections: [], offers: [], registrations: [] };
+    return { 
+      categories: [], 
+      products: [], 
+      collections: [], 
+      offers: [], 
+      registrations: [],
+      admin: {
+        username: "admin",
+        password: "",
+        email: "Riomedicahealthcare@gmail.com",
+        twoFactorSecret: "",
+        twoFactorEnabled: false
+      }
+    };
   }
 };
 
@@ -52,6 +162,7 @@ const writeDb = (data) => {
     console.error("Error writing to database file", err);
   }
 };
+
 
 // Configure Multer storage
 const storage = multer.diskStorage({
@@ -115,7 +226,7 @@ app.get('/api/categories', (req, res) => {
   res.json(db.categories);
 });
 
-app.post('/api/categories', (req, res) => {
+app.post('/api/categories', requireAdminAuth, (req, res) => {
   const { name, description, icon } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
@@ -132,7 +243,7 @@ app.post('/api/categories', (req, res) => {
   res.status(201).json(newCategory);
 });
 
-app.delete('/api/categories/:id', (req, res) => {
+app.delete('/api/categories/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   const index = db.categories.findIndex(c => c.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: 'Category not found' });
@@ -151,7 +262,7 @@ app.get('/api/products', (req, res) => {
   res.json(db.products);
 });
 
-app.post('/api/products', productUploads, (req, res) => {
+app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
   const { name, categoryId, composition, indications, dosage, lbl, videoUrl, isNewLaunch, mrp } = req.body;
   if (!name) return res.status(400).json({ error: 'Product name is required' });
 
@@ -191,7 +302,7 @@ app.post('/api/products', productUploads, (req, res) => {
   res.status(201).json(newProduct);
 });
 
-app.put('/api/products/:id', productUploads, (req, res) => {
+app.put('/api/products/:id', requireAdminAuth, productUploads, (req, res) => {
   const db = readDb();
   const productIndex = db.products.findIndex(p => p.id === req.params.id);
   if (productIndex === -1) return res.status(404).json({ error: 'Product not found' });
@@ -239,7 +350,7 @@ app.put('/api/products/:id', productUploads, (req, res) => {
   res.json(updatedProduct);
 });
 
-app.delete('/api/products/:id', (req, res) => {
+app.delete('/api/products/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   const productIndex = db.products.findIndex(p => p.id === req.params.id);
   if (productIndex === -1) return res.status(404).json({ error: 'Product not found' });
@@ -257,7 +368,7 @@ app.delete('/api/products/:id', (req, res) => {
 });
 
 // Reset all products (clear product catalog)
-app.post('/api/products/reset', (req, res) => {
+app.post('/api/products/reset', requireAdminAuth, (req, res) => {
   const db = readDb();
   db.products = [];
   db.categories = []; // Reset Category Manager list for a fresh slate!
@@ -280,7 +391,7 @@ app.get('/api/collections', (req, res) => {
   res.json(db.collections);
 });
 
-app.post('/api/collections', (req, res) => {
+app.post('/api/collections', requireAdminAuth, (req, res) => {
   const { name, description, productIds } = req.body;
   if (!name) return res.status(400).json({ error: 'Collection name is required' });
 
@@ -299,7 +410,7 @@ app.post('/api/collections', (req, res) => {
   res.status(201).json(newCollection);
 });
 
-app.put('/api/collections/:id', (req, res) => {
+app.put('/api/collections/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   const index = db.collections.findIndex(c => c.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: 'Collection not found' });
@@ -319,7 +430,7 @@ app.put('/api/collections/:id', (req, res) => {
   res.json(updatedCollection);
 });
 
-app.delete('/api/collections/:id', (req, res) => {
+app.delete('/api/collections/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   const index = db.collections.findIndex(c => c.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: 'Collection not found' });
@@ -335,7 +446,7 @@ app.get('/api/offers', (req, res) => {
   res.json(db.offers || []);
 });
 
-app.post('/api/offers', offerUpload, (req, res) => {
+app.post('/api/offers', requireAdminAuth, offerUpload, (req, res) => {
   const { title, description, discount, productId, expiry } = req.body;
   if (!title) return res.status(400).json({ error: 'Offer title is required' });
 
@@ -363,7 +474,7 @@ app.post('/api/offers', offerUpload, (req, res) => {
   res.status(201).json(newOffer);
 });
 
-app.delete('/api/offers/:id', (req, res) => {
+app.delete('/api/offers/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   if (!db.offers) db.offers = [];
 
@@ -425,13 +536,13 @@ app.post('/api/register', registerUploads, (req, res) => {
 });
 
 // Get registrations lists (for Admin Dashboard)
-app.get('/api/registrations', (req, res) => {
+app.get('/api/registrations', requireAdminAuth, (req, res) => {
   const db = readDb();
   res.json(db.registrations || []);
 });
 
 // Approve registration request & generate login details
-app.post('/api/registrations/:id/approve', (req, res) => {
+app.post('/api/registrations/:id/approve', requireAdminAuth, (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required to approve and generate user details' });
@@ -451,7 +562,7 @@ app.post('/api/registrations/:id/approve', (req, res) => {
 });
 
 // Deny registration request
-app.post('/api/registrations/:id/deny', (req, res) => {
+app.post('/api/registrations/:id/deny', requireAdminAuth, (req, res) => {
   const db = readDb();
   if (!db.registrations) db.registrations = [];
 
@@ -466,7 +577,7 @@ app.post('/api/registrations/:id/deny', (req, res) => {
 });
 
 // Terminate franchise partner account and delete associated MRs
-app.delete('/api/registrations/:id', (req, res) => {
+app.delete('/api/registrations/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   if (!db.registrations) db.registrations = [];
   if (!db.mrs) db.mrs = [];
@@ -525,7 +636,7 @@ app.post('/api/user/change-password', (req, res) => {
 });
 
 // Admin reset user password
-app.post('/api/admin/reset-password', (req, res) => {
+app.post('/api/admin/reset-password', requireAdminAuth, (req, res) => {
   const { userId, newPassword } = req.body;
   if (!userId || !newPassword) {
     return res.status(400).json({ error: 'userId and newPassword are required' });
@@ -575,24 +686,68 @@ app.post('/api/mrs/reset-password', (req, res) => {
 
 // Authenticate user login
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
+  const { username, password, otp } = req.body;
+  if (!username) {
+    return res.status(400).json({ error: 'Username is required' });
   }
 
-  // Admin account login bypass
-  if (username.toLowerCase() === 'admin' && password === 'admin123') {
-    return res.json({
-      message: 'Login successful',
-      role: 'admin',
-      user: {
-        id: 'admin_root',
-        firmName: 'Riomedica Admin Head Office',
-        ownerName: 'Riomedica Admin',
-        mobile: '0000000000',
-        email: 'admin@riomedica.com'
+  // Admin account login validation
+  if (username.toLowerCase() === 'admin') {
+    const db = readDb();
+    let firstFactorPassed = false;
+
+    if (otp) {
+      // Validate OTP
+      const key = db.admin.email.toLowerCase();
+      const record = activeOtps.email[key];
+      if (record && Date.now() <= record.expiresAt && record.otp === otp) {
+        firstFactorPassed = true;
+        delete activeOtps.email[key]; // clear OTP
+      } else {
+        return res.status(400).json({ error: 'Invalid or expired administrator verification OTP' });
       }
-    });
+    } else {
+      if (!password) {
+        return res.status(400).json({ error: 'Password or OTP is required for administrator login' });
+      }
+      // Validate password (only if password is not empty)
+      if (db.admin.password && db.admin.password === password) {
+        firstFactorPassed = true;
+      } else {
+        return res.status(401).json({ error: 'Invalid administrator password credentials' });
+      }
+    }
+
+    if (firstFactorPassed) {
+      // Check if 2FA (Google Authenticator) is enabled
+      if (db.admin.twoFactorEnabled && db.admin.twoFactorSecret) {
+        return res.json({
+          message: 'First factor verified. 2-Step Verification required.',
+          require2FA: true,
+          adminEmail: db.admin.email
+        });
+      } else {
+        // Log in directly
+        activeAdminSessionToken = crypto.randomBytes(32).toString('hex');
+        return res.json({
+          message: 'Login successful',
+          role: 'admin',
+          token: activeAdminSessionToken,
+          user: {
+            id: 'admin_root',
+            firmName: 'Riomedica Admin Head Office',
+            ownerName: 'Riomedica Admin',
+            mobile: '0000000000',
+            email: db.admin.email
+          }
+        });
+      }
+    }
+  }
+
+  // Distributor/MR login validation
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
   }
 
   const db = readDb();
@@ -648,6 +803,138 @@ app.post('/api/login', (req, res) => {
   }
 
   return res.status(401).json({ error: 'Invalid credentials or account is still pending verification by Admin' });
+});
+
+// Admin 2FA Code Verification
+app.post('/api/admin/verify-2fa', (req, res) => {
+  const { username, totpCode, fallbackOtp } = req.body;
+  if (!username || username.toLowerCase() !== 'admin') {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  const db = readDb();
+
+  if (totpCode) {
+    if (db.admin.twoFactorEnabled && db.admin.twoFactorSecret && verifyTOTP(db.admin.twoFactorSecret, totpCode)) {
+      activeAdminSessionToken = crypto.randomBytes(32).toString('hex');
+      return res.json({
+        message: 'Login successful',
+        role: 'admin',
+        token: activeAdminSessionToken,
+        user: {
+          id: 'admin_root',
+          firmName: 'Riomedica Admin Head Office',
+          ownerName: 'Riomedica Admin',
+          mobile: '0000000000',
+          email: db.admin.email
+        }
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid 2-Step Verification code' });
+    }
+  } else if (fallbackOtp) {
+    const key = db.admin.email.toLowerCase();
+    const record = activeOtps.email[key];
+    if (record && Date.now() <= record.expiresAt && record.otp === fallbackOtp) {
+      delete activeOtps.email[key]; // clear OTP
+      activeAdminSessionToken = crypto.randomBytes(32).toString('hex');
+      return res.json({
+        message: 'Login successful (Backup Verified)',
+        role: 'admin',
+        token: activeAdminSessionToken,
+        user: {
+          id: 'admin_root',
+          firmName: 'Riomedica Admin Head Office',
+          ownerName: 'Riomedica Admin',
+          mobile: '0000000000',
+          email: db.admin.email
+        }
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid or expired backup verification OTP' });
+    }
+  }
+
+  return res.status(400).json({ error: 'Verification code is required' });
+});
+
+// Generate 2FA Secret
+app.post('/api/admin/setup-2fa', requireAdminAuth, (req, res) => {
+  const db = readDb();
+  const secret = generateBase32Secret();
+  const label = encodeURIComponent(`RiomedicaAdmin:${db.admin.email}`);
+  const issuer = encodeURIComponent('RiomedicaAdmin');
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=otpauth://totp/${label}?secret=${secret}&issuer=${issuer}`;
+  
+  res.json({ secret, qrCodeUrl });
+});
+
+// Enable 2FA
+app.post('/api/admin/enable-2fa', requireAdminAuth, (req, res) => {
+  const { secret, code } = req.body;
+  if (!secret || !code) {
+    return res.status(400).json({ error: 'Secret and verification code are required' });
+  }
+
+  if (verifyTOTP(secret, code)) {
+    const db = readDb();
+    db.admin.twoFactorSecret = secret;
+    db.admin.twoFactorEnabled = true;
+    writeDb(db);
+    res.json({ success: true, message: 'Google Authenticator 2-Step Verification enabled successfully' });
+  } else {
+    res.status(400).json({ error: 'Invalid verification code. Setup failed.' });
+  }
+});
+
+// Disable 2FA
+app.post('/api/admin/disable-2fa', requireAdminAuth, (req, res) => {
+  const { code, fallbackOtp } = req.body;
+  const db = readDb();
+
+  let verified = false;
+  if (code) {
+    if (db.admin.twoFactorSecret && verifyTOTP(db.admin.twoFactorSecret, code)) {
+      verified = true;
+    }
+  } else if (fallbackOtp) {
+    const key = db.admin.email.toLowerCase();
+    const record = activeOtps.email[key];
+    if (record && Date.now() <= record.expiresAt && record.otp === fallbackOtp) {
+      delete activeOtps.email[key];
+      verified = true;
+    }
+  }
+
+  if (verified) {
+    db.admin.twoFactorEnabled = false;
+    db.admin.twoFactorSecret = '';
+    writeDb(db);
+    res.json({ success: true, message: 'Google Authenticator 2-Step Verification disabled successfully' });
+  } else {
+    res.status(400).json({ error: 'Invalid verification code' });
+  }
+});
+
+// Change Admin Password
+app.post('/api/admin/change-password', requireAdminAuth, (req, res) => {
+  const { newPassword, otp } = req.body;
+  if (!newPassword || !otp) {
+    return res.status(400).json({ error: 'New password and verification OTP are required' });
+  }
+
+  const db = readDb();
+  const key = db.admin.email.toLowerCase();
+  const record = activeOtps.email[key];
+
+  if (record && Date.now() <= record.expiresAt && record.otp === otp) {
+    delete activeOtps.email[key];
+    db.admin.password = newPassword;
+    writeDb(db);
+    res.json({ success: true, message: 'Administrator password updated successfully' });
+  } else {
+    res.status(400).json({ error: 'Invalid or expired verification OTP' });
+  }
 });
 
 // Short-term memory store for active OTP codes
@@ -1001,7 +1288,7 @@ app.get('/api/branding', (req, res) => {
   res.json(db.branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "", landingTitle: "", landingDescription: "", landingBgImage: "", topRightBadge: "" });
 });
 
-app.post('/api/branding', brandingUpload, (req, res) => {
+app.post('/api/branding', requireAdminAuth, brandingUpload, (req, res) => {
   const { companyName, tagline, landingTitle, landingDescription } = req.body;
   const db = readDb();
 
@@ -1044,7 +1331,7 @@ app.get('/api/settings', (req, res) => {
   res.json(db.settings || { geminiApiKey: "", otpChannel: "mock", smtpEmail: "", smtpPassword: "" });
 });
 
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', requireAdminAuth, (req, res) => {
   const { geminiApiKey, otpChannel, smtpEmail, smtpPassword } = req.body;
   const db = readDb();
   db.settings = db.settings || {};
@@ -1062,7 +1349,7 @@ app.get('/api/banners', (req, res) => {
   res.json(db.banners || []);
 });
 
-app.post('/api/banners', bannerUpload, (req, res) => {
+app.post('/api/banners', requireAdminAuth, bannerUpload, (req, res) => {
   const { title, linkUrl, linkProductId } = req.body;
   if (!req.file) {
     return res.status(400).json({ error: 'Banner image file is required' });
@@ -1086,7 +1373,7 @@ app.post('/api/banners', bannerUpload, (req, res) => {
   res.status(201).json(newBanner);
 });
 
-app.delete('/api/banners/:id', (req, res) => {
+app.delete('/api/banners/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   if (!db.banners) db.banners = [];
 
@@ -1447,7 +1734,7 @@ CRITICAL INSTRUCTIONS FOR HUMAN-LIKE RESPONSE AND NATURAL SPEECH:
 });
 
 // --- BULK PRODUCT IMPORT ROUTE ---
-app.post('/api/products/bulk-import', (req, res) => {
+app.post('/api/products/bulk-import', requireAdminAuth, (req, res) => {
   excelUpload(req, res, (uploadErr) => {
     if (uploadErr) {
       return res.status(400).json({ error: uploadErr.message });
@@ -1576,7 +1863,7 @@ app.get('/api/orders', (req, res) => {
   res.json(db.orders || []);
 });
 
-app.put('/api/orders/:id/status', (req, res) => {
+app.put('/api/orders/:id/status', requireAdminAuth, (req, res) => {
   const db = readDb();
   if (!db.orders) db.orders = [];
   const orderIndex = db.orders.findIndex(o => o.id === req.params.id);
@@ -1588,7 +1875,7 @@ app.put('/api/orders/:id/status', (req, res) => {
   res.status(404).json({ error: 'Order not found' });
 });
 
-app.delete('/api/orders/:id', (req, res) => {
+app.delete('/api/orders/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   if (db.orders) {
     db.orders = db.orders.filter(o => o.id !== req.params.id);
