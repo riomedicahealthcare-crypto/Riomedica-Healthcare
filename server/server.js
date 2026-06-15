@@ -1594,13 +1594,13 @@ app.post('/api/ai/chat', async (req, res) => {
 
     if (matchedProduct) {
       if (detectedLang === "hi") {
-        reply = `नमस्ते, मैं प्रिया हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage} है और इसका एमआरपी ${matchedProduct.mrp} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
+        reply = `नमस्ते, मैं अनी हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage} है और इसका एमआरपी ${matchedProduct.mrp} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
       } else if (detectedLang === "ta") {
-        reply = `வணக்கம், நான் பிரியா பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய அளவு ${matchedProduct.dosage} மற்றும் இதன் விலை ${matchedProduct.mrp} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
+        reply = `வணக்கம், நான் அனி பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய அளவு ${matchedProduct.dosage} மற்றும் இதன் விலை ${matchedProduct.mrp} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
       } else if (detectedLang === "mr") {
-        reply = `नमस्कार, मी प्रिया बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याचा डोस ${matchedProduct.dosage} असून याची किंमत ${matchedProduct.mrp} आहे. तुम्हाला याबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
+        reply = `नमस्कार, मी अनी बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याचा डोस ${matchedProduct.dosage} असून याची किंमत ${matchedProduct.mrp} आहे. तुम्हाला इसबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
       } else {
-        reply = `Hello, this is Priya from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the standard dosage is ${matchedProduct.dosage}. The MRP for this medicine is ${matchedProduct.mrp}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
+        reply = `Hello, this is Ani from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the standard dosage is ${matchedProduct.dosage}. The MRP for this medicine is ${matchedProduct.mrp}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
       }
     } else if (lowerMsg.includes('offer') || lowerMsg.includes('scheme') || lowerMsg.includes('सूट') || lowerMsg.includes('ऑफर')) {
       if (offersList.length > 0) {
@@ -1617,13 +1617,13 @@ app.post('/api/ai/chat', async (req, res) => {
       }
     } else {
       if (detectedLang === "hi") {
-        reply = "नमस्ते! मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (पूर्ण बहुभाषी AI संवाद के लिए कृपया GEMINI_API_KEY सेट करें)";
+        reply = "नमस्ते! मैं अनी बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (पूर्ण बहुभाषी AI संवाद के लिए कृपया GEMINI_API_KEY सेट करें)";
       } else if (detectedLang === "ta") {
-        reply = "வணக்கம்! நான் பிரியா பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (முழுமையான AI சேவைக்கு GEMINI_API_KEY ஐ உள்ளமைக்கவும்)";
+        reply = "வணக்கம்! நான் அனி பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (முழுமையான AI சேவைக்கு GEMINI_API_KEY ஐ உள்ளமைக்கவும்)";
       } else if (detectedLang === "mr") {
-        reply = "नमस्कार! मी प्रिया बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (पूर्ण AI संवादासाठी GEMINI_API_KEY सेट करा)";
+        reply = "नमस्कार! मी अनी बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (पूर्ण AI संवादासाठी GEMINI_API_KEY सेट करा)";
       } else {
-        reply = "Hello! This is Priya from the Riomedica customer support team. I am here to help you just like a real support coordinator. You can ask me about any of our brands, such as 'Tell me about Rabrio 20' or 'What is the price of ALCARIO-PRO?'. (Configure GEMINI_API_KEY on the server to activate full multilingual Generative AI support.)";
+        reply = "Hello! This is Ani from the Riomedica customer support team. I am here to help you just like a real support coordinator. You can ask me about any of our brands, such as 'Tell me about Rabrio 20' or 'What is the price of ALCARIO-PRO?'. (Configure GEMINI_API_KEY on the server to activate full multilingual Generative AI support.)";
       }
     }
 
@@ -1651,7 +1651,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
   // GEMINI ACTIVE STREAMING MODE
   try {
-    const systemPrompt = `You are Priya, a warm, friendly, and highly professional human customer support representative at the Riomedica Healthcare service desk.
+    const systemPrompt = `You are Ani, a warm, friendly, and highly professional human customer support representative at the Riomedica Healthcare service desk.
 Never refer to yourself as an AI assistant, AI bot, or virtual robot. Speak and behave as a real human agent talking to the user over the phone.
 Your database of products and active offers is:
 Products: ${JSON.stringify(productsList)}
@@ -1660,7 +1660,7 @@ Offers: ${JSON.stringify(offersList)}
 CRITICAL INSTRUCTIONS FOR HUMAN-LIKE RESPONSE AND NATURAL SPEECH:
 1. Tone & Character: Act as a friendly, helpful human sales coordinator. Use warm human-like expressions and conversational transitions where natural (e.g., "Oh, absolutely!", "Sure thing, let me check that for you...", "I'd be happy to help with that!", "Yes, indeed!").
 2. NO ROBOTIC MARKDOWN OR FORMATTING: To ensure the speech synthesis engine sounds completely natural and like a real human speaking, do NOT use lists (no bullets, no dashes, no numbers), do NOT use bold marks (do not write **text** or *text*), do NOT use hash headers, and do NOT use tables. Write exclusively in complete, grammatically correct sentences and flowing paragraphs separated by standard punctuation (commas, periods, question marks).
-3. Language Matching: Detect the language the user is speaking in (English, Hindi, Tamil, Marathi, Telugu, Hinglish, etc.) and you MUST reply in the EXACT SAME language with natural, colloquial human vocabulary of that language. For example, in Hindi, respond as a polite support executive: "नमस्ते, मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। आपकी किस प्रकार सहायता कर सकती हूँ?"
+3. Language Matching: Detect the language the user is speaking in (English, Hindi, Tamil, Marathi, Telugu, Hinglish, etc.) and you MUST reply in the EXACT SAME language with natural, colloquial human vocabulary of that language. For example, in Hindi, respond as a polite support executive: "नमस्ते, मैं अनी बोल रही हूँ रियोमेडिका टीम से। आपकी किस प्रकार सहायता कर सकती हूँ?"
 4. Scope: Only answer questions related to Riomedica products, compositions, prices (MRP), indications, dosages, active offers, or categories.
 5. If the user asks about a product not in the database, tell them politely as a human support representative that the item is currently not in our catalog.
 6. Do not make up facts. Only use the provided database details.

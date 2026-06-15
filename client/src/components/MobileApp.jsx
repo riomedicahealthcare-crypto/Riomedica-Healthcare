@@ -418,7 +418,7 @@ export default function MobileApp() {
   const [aiMessages, setAiMessages] = useState([
     {
       role: 'model',
-      text: "Hello! This is Priya from the Riomedica team. I am here to assist you just like a real support representative. I can help you search our catalog, check prices (MRP), active offers, chemical compositions, or standard dosages.\n\nFeel free to type in English, Hindi, Tamil, Marathi, or any Indian language, and I will reply to you in the same language. How can I help you today?",
+      text: "Hello! This is Ani from the Riomedica team. I am here to assist you just like a real support representative. I can help you search our catalog, check prices (MRP), active offers, chemical compositions, or standard dosages.\n\nFeel free to type in English, Hindi, Tamil, Marathi, or any Indian language, and I will reply to you in the same language. How can I help you today?",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -518,8 +518,8 @@ export default function MobileApp() {
       localWakeRec.onresult = (event) => {
         const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
         console.log("Wake word background recognition:", transcript);
-        if (transcript.includes('priya') || transcript.includes('प्रिया') || transcript.includes('பிரியா')) {
-          console.log("Wake word detected! Opening Priya Chat overlay.");
+        if (transcript.includes('ani') || transcript.includes('अनी') || transcript.includes('அனி')) {
+          console.log("Wake word detected! Opening Ani Chat overlay.");
           setIsAiChatOpen(true);
           setIsContinuousTalkEnabled(true); // Automatically turn on hands-free mode
           
@@ -647,7 +647,7 @@ export default function MobileApp() {
     const handleSpeechEnded = () => {
       activeUtterancesCountRef.current = Math.max(0, activeUtterancesCountRef.current - 1);
       if (activeUtterancesCountRef.current === 0) {
-        console.log("Priya finished speaking. Checking if hands-free is enabled:", isContinuousTalkEnabledRef.current);
+        console.log("Ani finished speaking. Checking if hands-free is enabled:", isContinuousTalkEnabledRef.current);
         if (isContinuousTalkEnabledRef.current && isAiChatOpenRef.current && !isAiListeningRef.current) {
           startSpeechRecognition();
         }
@@ -776,9 +776,9 @@ export default function MobileApp() {
     if (isAiChatOpen) {
       let greetingText = '';
       if (userRole === 'mr') {
-        greetingText = `Hello ${loggedInUser?.ownerName || 'Representative'}! This is Priya from the Riomedica team. How can I help you today?`;
+        greetingText = `Hello ${loggedInUser?.ownerName || 'Representative'}! This is Ani from the Riomedica team. How can I help you today?`;
       } else {
-        greetingText = `Hello ${loggedInUser?.ownerName || 'Partner'} from ${loggedInUser?.firmName || 'Riomedica'}! This is Priya from the Riomedica team. How can I help you today?`;
+        greetingText = `Hello ${loggedInUser?.ownerName || 'Partner'} from ${loggedInUser?.firmName || 'Riomedica'}! This is Ani from the Riomedica team. How can I help you today?`;
       }
 
       setAiMessages(prev => {
@@ -1036,23 +1036,23 @@ export default function MobileApp() {
         if (matchedProduct) {
           const mrpVal = matchedProduct.mrp ? (String(matchedProduct.mrp).includes('₹') ? matchedProduct.mrp : `₹${matchedProduct.mrp}`) : 'Price on request';
           if (detectedLang === "hi") {
-            reply = `नमस्ते, मैं प्रिया हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage || 'चिकित्सक के निर्देशानुसार'} है और इसका एमआरपी ${mrpVal} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
+            reply = `नमस्ते, मैं अनी हूँ रियोमेडिका से। ${matchedProduct.name} के बारे में मैं आपको जानकारी दे देती हूँ। इसकी संरचना ${matchedProduct.composition} है। यह मुख्य रूप से ${matchedProduct.indications || 'सामान्य उपयोग'} के लिए उपयोग किया जाता है। इसकी सामान्य खुराक ${matchedProduct.dosage || 'चिकित्सक के निर्देशानुसार'} है और इसका एमआरपी ${mrpVal} है। यह एक उत्कृष्ट उत्पाद है। क्या मैं आपकी कुछ और मदद करूँ? (ऑफ़लाइन सिमुलेशन मोड)`;
           } else if (detectedLang === "ta") {
-            reply = `வணக்கம், நான் பிரியா பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய விலை ${mrpVal} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
+            reply = `வணக்கம், நான் அனி பேசுறேன். ${matchedProduct.name} பற்றி சொல்கிறேன். இதில் ${matchedProduct.composition} உள்ளது. இது பொதுவாக ${matchedProduct.indications || 'பொதுவான பயன்பாட்டிற்கு'} பயன்படுகிறது. இதனுடைய விலை ${mrpVal} ஆகும். உங்களுக்கு வேறு ஏதேனும் விவரங்கள் வேண்டுமா? (ஆஃப்லைன் சிமுலேஷன் முறை)`;
           } else if (detectedLang === "mr") {
-            reply = `नमस्कार, मी प्रिया बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याची किंमत ${mrpVal} आहे. तुम्हाला याबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
+            reply = `नमस्कार, मी अनी बोलत आहे. ${matchedProduct.name} बद्दल सांगायचे तर, यामध्ये ${matchedProduct.composition} घटक आहेत. याचा वापर प्रामुख्याने ${matchedProduct.indications || 'सामान्य वापरासाठी'} केला जातो. याची किंमत ${mrpVal} आहे. तुम्हाला इसबद्दल अजून काही माहिती हवी आहे का? (ऑफलाइन सिम्युलेशन मोड)`;
           } else {
-            reply = `Hello, this is Priya from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the MRP for this medicine is ${mrpVal}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
+            reply = `Hello, this is Ani from the Riomedica team. I can certainly help you with ${matchedProduct.name}. It contains ${matchedProduct.composition}. For indications, it is generally used for ${matchedProduct.indications || 'general clinical use'}, and the MRP for this medicine is ${mrpVal}. Please let me know if you would like me to help with anything else. (Offline Simulation Mode)`;
           }
         } else {
           if (detectedLang === "hi") {
-            reply = "नमस्ते! मैं प्रिया बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (ऑफ़लाइन सिमुलेशन मोड)";
+            reply = "नमस्ते! मैं अनी बोल रही हूँ रियोमेडिका टीम से। मैं एक असली प्रतिनिधि की तरह आपकी सहायता करने के लिए यहाँ हूँ। आप मुझसे किसी भी दवा जैसे 'Rabrio 20' या 'Rioceft' के बारे में पूछ सकते हैं। (ऑफ़ライン सिमुलेशन मोड)";
           } else if (detectedLang === "ta") {
-            reply = "வணக்கம்! நான் பிரியா பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (ஆஃப்லைன் சிமுலேஷன் முறை)";
+            reply = "வணக்கம்! நான் அனி பேசுறேன். தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம். (ஆஃப்லைன் சிமுலேஷன் முறை)";
           } else if (detectedLang === "mr") {
-            reply = "नमस्कार! मी प्रिया बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (ऑफलाइन सिम्युलेशन मोड)";
+            reply = "नमस्कार! मी अनी बोलत आहे. तुम्ही मला औषधांबद्दल विचारू शकता. (ऑफलाइन सिम्युलेशन मोड)";
           } else {
-            reply = "Hello! This is Priya from the Riomedica customer support team. I am here to help you just like a real support coordinator. Ask me about any of our brands, such as 'Tell me about Rabrio 20'. (Offline Simulation Mode)";
+            reply = "Hello! This is Ani from the Riomedica customer support team. I am here to help you just like a real support coordinator. Ask me about any of our brands, such as 'Tell me about Rabrio 20'. (Offline Simulation Mode)";
           }
         }
 
@@ -6387,9 +6387,9 @@ export default function MobileApp() {
               cursor: 'pointer',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
-            title="Chat with Priya"
+            title="Chat with Ani"
           >
-            <img src="/female_ai_assistant_avatar.png" alt="Priya Avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+            <img src="/female_ai_assistant_avatar.png" alt="Ani Avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
           </button>
         </div>
       )}
@@ -6426,7 +6426,7 @@ export default function MobileApp() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ position: 'relative', display: 'inline-block', width: '36px', height: '36px' }}>
-                <img src="/female_ai_assistant_avatar.png" alt="Priya Avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
+                <img src="/female_ai_assistant_avatar.png" alt="Ani Avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
                 <span 
                   style={{
                     position: 'absolute',
@@ -6440,11 +6440,11 @@ export default function MobileApp() {
                     boxShadow: '0 0 8px #10b981',
                     animation: 'pulse 1.2s infinite'
                   }}
-                  title="Priya Online & Active"
+                  title="Ani Online & Active"
                 />
               </div>
               <div style={{ textAlign: 'left' }}>
-                <h4 style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fff', margin: 0 }}>Priya (Support Desk)</h4>
+                <h4 style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fff', margin: 0 }}>Ani (Support Desk)</h4>
                 <span style={{ fontSize: '0.68rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
                   Customer Care Agent Online

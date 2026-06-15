@@ -244,7 +244,7 @@ export default function AdminLayout() {
   const [aiMessages, setAiMessages] = useState([
     {
       role: 'model',
-      text: "Hello! I am Riobot, your Riomedica AI Assistant (Admin Testing Interface).\n\nUse this screen to test the Gemini integration, compositions, pricing checks, and voice capabilities.\n\nSpeak or type naturally, and I will reply in your language!",
+      text: "Hello! I am Ani, your Riomedica AI Assistant (Admin Testing Interface).\n\nUse this screen to test the Gemini integration, compositions, pricing checks, and voice capabilities.\n\nSpeak or type naturally, and I will reply in your language!",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -1144,13 +1144,13 @@ export default function AdminLayout() {
           }
         } else {
           if (detectedLang === "hi") {
-            reply = "नमस्ते! मैं रियोबॉट हूँ। आप मुझसे किसी भी ब्रांड (जैसे 'Rabrio 20') के बारे में पूछ सकते हैं।\n\n*(ऑफ़लाइन सिमुलेशन मोड)*";
+            reply = "नमस्ते! मैं अनी हूँ। आप मुझसे किसी भी ब्रांड (जैसे 'Rabrio 20') के बारे में पूछ सकते हैं।\n\n*(ऑफ़लाइन सिमुलेशन मोड)*";
           } else if (detectedLang === "ta") {
-            reply = "வணக்கம்! நான் ரியோபாट. நீங்கள் தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம்.\n\n*(ஆஃப்லைன் சிமுலேஷன் முறை)*";
+            reply = "வணக்கம்! நான் அனி. நீங்கள் தயாரிப்புகள் அல்லது விலைகளைப் பற்றி கேட்கலாம்.\n\n*(ஆஃப்லைன் சிமுலேஷன் முறை)*";
           } else if (detectedLang === "mr") {
-            reply = "नमस्कार! मी रियोबॉट आहे. तुम्ही मला औषधांबद्दल विचारू शकता.\n\n*(ऑफलाइन सिम्युलेशन मोड)*";
+            reply = "नमस्कार! मी अनी आहे. तुम्ही मला औषधांबद्दल विचारू शकता.\n\n*(ऑफलाइन सिम्युलेशन मोड)*";
           } else {
-            reply = "Hello! I am **Riobot**, your Riomedica AI Assistant. Ask me about any of our brands (e.g., 'Tell me about Rabrio 20').\n\n*(Offline Simulation Mode)*";
+            reply = "Hello! I am **Ani**, your Riomedica AI Assistant. Ask me about any of our brands (e.g., 'Tell me about Rabrio 20').\n\n*(Offline Simulation Mode)*";
           }
         }
 
@@ -1259,7 +1259,7 @@ export default function AdminLayout() {
   // Speak and show personalized greeting when opening the AI assistant
   useEffect(() => {
     if (isAiChatOpen) {
-      const greetingText = `Hello Admin! I am Riobot, your Riomedica AI Assistant. How can I help you test today?`;
+      const greetingText = `Hello Admin! I am Ani, your Riomedica AI Assistant. How can I help you test today?`;
 
       setAiMessages(prev => {
         if (prev.length <= 1) {
@@ -3997,9 +3997,9 @@ export default function AdminLayout() {
               cursor: 'pointer',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
-            title="Test Riobot AI Assistant"
+            title="Test Ani AI Assistant"
           >
-            <img src="/female_ai_assistant_avatar.png" alt="Riobot Avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+            <img src="/female_ai_assistant_avatar.png" alt="Ani Avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
           </button>
         </div>
       ) : (
@@ -4039,7 +4039,7 @@ export default function AdminLayout() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ position: 'relative', display: 'inline-block', width: '36px', height: '36px' }}>
-                <img src="/female_ai_assistant_avatar.png" alt="Riobot Avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
+                <img src="/female_ai_assistant_avatar.png" alt="Ani Avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
                 <span 
                   style={{
                     position: 'absolute',
@@ -4053,11 +4053,11 @@ export default function AdminLayout() {
                     boxShadow: '0 0 8px #10b981',
                     animation: 'pulse 1.2s infinite'
                   }}
-                  title="Riobot Online & Active"
+                  title="Ani Online & Active"
                 />
               </div>
               <div style={{ textAlign: 'left' }}>
-                <h4 style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fff', margin: 0 }}>Riobot AI Assistant</h4>
+                <h4 style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fff', margin: 0 }}>Ani AI Assistant</h4>
                 <span style={{ fontSize: '0.68rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
                   Multilingual AI Active (Admin Test)
