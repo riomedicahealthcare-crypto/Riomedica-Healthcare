@@ -160,6 +160,83 @@ const SwipeButton = ({ onSwipeSuccess }) => {
   );
 };
 
+// ─── INLINE SWIPE BUTTON (sits in solid bar, no absolute positioning) ─────────
+const SwipeButtonInline = ({ onSwipeSuccess }) => {
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startX = useRef(0);
+  const containerRef = useRef(null);
+  const [maxDrag, setMaxDrag] = useState(260);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) setMaxDrag(containerRef.current.clientWidth - 56);
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleStart = (clientX) => { setIsDragging(true); startX.current = clientX - dragX; };
+  const handleMove = (clientX) => {
+    if (!isDragging) return;
+    let x = clientX - startX.current;
+    if (x < 0) x = 0;
+    if (x > maxDrag) x = maxDrag;
+    setDragX(x);
+  };
+  const handleEnd = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    if (dragX >= maxDrag * 0.85) {
+      setDragX(maxDrag);
+      setTimeout(() => { onSwipeSuccess(); setDragX(0); }, 150);
+    } else { setDragX(0); }
+  };
+
+  const onTouchStart = (e) => handleStart(e.touches[0].clientX);
+  const onTouchMove = (e) => handleMove(e.touches[0].clientX);
+  const onTouchEnd = () => handleEnd();
+  const onMouseDown = (e) => {
+    handleStart(e.clientX);
+    const onMove = (ev) => handleMove(ev.clientX);
+    const onUp = () => { handleEnd(); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '56px',
+        background: '#49832d',
+        borderRadius: '28px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        userSelect: 'none',
+        overflow: 'hidden'
+      }}
+    >
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${dragX + 28}px`, background: 'rgba(255,255,255,0.15)', borderRadius: '28px 0 0 28px', pointerEvents: 'none' }} />
+      <span style={{ color: '#ffffff', fontWeight: '700', fontSize: '0.82rem', letterSpacing: '0.4px', opacity: Math.max(0.1, 1 - (dragX / maxDrag) * 1.5), transition: isDragging ? 'none' : 'opacity 0.2s ease-out', paddingLeft: '40px', pointerEvents: 'none' }}>
+        Let's Build a Healthier Tomorrow Together
+      </span>
+      <div
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onMouseDown={onMouseDown}
+        style={{ position: 'absolute', left: '5px', width: '46px', height: '46px', background: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', transform: `translateX(${dragX}px)`, transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)', zIndex: 5 }}
+      >
+        <Icons.ArrowRight size={22} style={{ color: '#49832d', pointerEvents: 'none' }} />
+      </div>
+    </div>
+  );
+};
+
+
 export default function MobileApp() {
   // Theme State
   const [theme, setTheme] = useState(() => localStorage.getItem('mobile-theme') || 'dark');
@@ -2046,46 +2123,57 @@ export default function MobileApp() {
           </div>
         )}
 
-        {/* VIEW: Welcome Landing View - Full Screen Image */}
+        {/* VIEW: Welcome Landing View - Split layout: image top, solid bar bottom */}
         {authView === 'landing' && (
           <div
             style={{
-              position: 'relative',
               width: '100%',
               height: '100%',
-              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
               animation: 'fadeIn 0.4s ease-out'
             }}
           >
-            {/* Full-screen background image */}
-            <img
-              src="/landing-bg.jpg"
-              alt="Riomedica Landing"
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                objectPosition: 'center top',
-                display: 'block'
-              }}
-            />
+            {/* Top: background image only - no swipe button behind it */}
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <img
+                src="/landing-bg.jpg"
+                alt="Riomedica Landing"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: 'center top',
+                  display: 'block'
+                }}
+              />
+            </div>
 
-            {/* Dark gradient overlay at bottom so swipe button is clearly visible */}
+            {/* Bottom: SOLID opaque bar — completely hides background image, no overlap */}
             <div
               style={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: '120px',
-                background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.5) 60%, transparent 100%)',
-                pointerEvents: 'none',
-                zIndex: 10
+                flexShrink: 0,
+                background: '#132b13',
+                padding: '12px 20px 28px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'stretch',
+                gap: '8px'
               }}
-            />
-
-            {/* Interactive Swipe-to-Unlock button overlaying the pre-rendered button */}
-            <SwipeButton onSwipeSuccess={() => setShowGetStartedSheet(true)} />
+            >
+              <p style={{
+                color: 'rgba(255,255,255,0.45)',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                letterSpacing: '1px',
+                margin: 0,
+                textAlign: 'center',
+                textTransform: 'uppercase'
+              }}>
+                Swipe to get started
+              </p>
+              <SwipeButtonInline onSwipeSuccess={() => setShowGetStartedSheet(true)} />
+            </div>
           </div>
         )}
 
