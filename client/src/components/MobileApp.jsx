@@ -330,6 +330,14 @@ export default function MobileApp() {
   const [isAddingMr, setIsAddingMr] = useState(false);
   const [mrFormError, setMrFormError] = useState('');
 
+  // MR OTP verification states
+  const [showMrOtpModal, setShowMrOtpModal] = useState(false);
+  const [mrOtpCode, setMrOtpCode] = useState('');
+  const [mrOtpError, setMrOtpError] = useState('');
+  const [isVerifyingMrOtp, setIsVerifyingMrOtp] = useState(false);
+  const [pendingMrData, setPendingMrData] = useState(null);
+  const [mrOtpHint, setMrOtpHint] = useState('');
+
   // Form states for logging doctor visits
   const [visitDoctorName, setVisitDoctorName] = useState('');
   const [visitSpecialty, setVisitSpecialty] = useState('General');
@@ -1662,14 +1670,23 @@ export default function MobileApp() {
   };
 
 
-  // Handle MR Registration Submission
+  // Handle MR Registration Submission - Send OTP to MR email first
   const handleAddMr = async (e) => {
     e.preventDefault();
     setMrFormError('');
+
+    if (!mrEmail) {
+      setMrFormError('Email address is required to verify and register the MR.');
+      return;
+    }
+
     setIsAddingMr(true);
 
     try {
-      const newMr = await addMR({
+      // Send Gmail OTP to MR's email for verification
+      const otpRes = await sendGmailOtp(mrEmail, 'registration');
+      setMrOtpHint(otpRes.mockOtp || '');
+      setPendingMrData({
         distributorId: loggedInUser.id,
         name: mrName,
         mobile: mrMobile,
@@ -1678,7 +1695,30 @@ export default function MobileApp() {
         username: mrUsername,
         password: mrPassword
       });
+      setMrOtpCode('');
+      setMrOtpError('');
+      setShowMrOtpModal(true);
+    } catch (err) {
+      setMrFormError(err.message || 'Failed to send verification email to MR. Please check the email address.');
+    } finally {
+      setIsAddingMr(false);
+    }
+  };
 
+  // Verify MR email OTP and complete MR registration
+  const handleVerifyMrOtp = async (e) => {
+    e.preventDefault();
+    if (!mrOtpCode || !pendingMrData) return;
+
+    setMrOtpError('');
+    setIsVerifyingMrOtp(true);
+
+    try {
+      // Verify Gmail OTP sent to MR's email
+      await verifyGmailOtp(pendingMrData.email, mrOtpCode);
+
+      // Register the MR after email verification
+      const newMr = await addMR(pendingMrData);
       setMrs((prev) => [...prev, newMr]);
       setMrName('');
       setMrMobile('');
@@ -1686,11 +1726,14 @@ export default function MobileApp() {
       setMrTerritory('');
       setMrUsername('');
       setMrPassword('');
-      alert('Medical Representative registered successfully!');
+      setShowMrOtpModal(false);
+      setPendingMrData(null);
+      setMrOtpHint('');
+      alert(`Medical Representative "${newMr.name}" registered successfully! Their email has been verified.`);
     } catch (err) {
-      setMrFormError(err.message || 'Failed to register MR.');
+      setMrOtpError(err.message || 'OTP verification failed. Please check the code sent to the MR\'s email.');
     } finally {
-      setIsAddingMr(false);
+      setIsVerifyingMrOtp(false);
     }
   };
 
@@ -8031,6 +8074,109 @@ export default function MobileApp() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MR EMAIL OTP VERIFICATION MODAL (Dashboard) --- */}
+      {showMrOtpModal && (
+        <div 
+          style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(9, 13, 22, 0.93)',
+            backdropFilter: 'blur(12px)',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            padding: '24px',
+            animation: 'fadeIn 0.25s ease-out'
+          }}
+        >
+          <div 
+            style={{
+              background: 'rgba(30, 41, 59, 0.9)',
+              border: '1px solid rgba(16,185,129,0.3)',
+              borderRadius: '20px',
+              padding: '28px 24px',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '20px',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+              animation: 'scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+            }}
+          >
+            <div 
+              style={{
+                width: '64px', height: '64px',
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '2px solid #10b981',
+                borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#10b981',
+                margin: '0 auto'
+              }}
+            >
+              <Icons.UserCheck size={30} />
+            </div>
+            <div>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 800, color: '#fff' }}>
+                Verify MR Email
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-mobile-secondary)', marginTop: '8px', lineHeight: '1.5' }}>
+                A 6-digit verification code has been sent to<br/>
+                <strong style={{ color: '#10b981' }}>{pendingMrData?.email}</strong><br/>
+                Ask the MR to share the code to complete registration.
+              </p>
+              {mrOtpHint && (
+                <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '8px 12px' }}>
+                  <p style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 700, margin: 0 }}>
+                    📧 SMTP not configured — Code: <span style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>{mrOtpHint}</span>
+                  </p>
+                </div>
+              )}
+            </div>
+            <form onSubmit={handleVerifyMrOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="auth-input-container">
+                <Icons.Key size={18} />
+                <input 
+                  type="text" 
+                  id="mr-otp-input"
+                  placeholder="Enter 6-digit code" 
+                  maxLength={6}
+                  value={mrOtpCode}
+                  onChange={(e) => setMrOtpCode(e.target.value.replace(/\D/g, ''))}
+                  style={{ textAlign: 'center', letterSpacing: '6px', fontSize: '1.2rem', fontWeight: 800 }}
+                  autoFocus
+                  required
+                />
+              </div>
+              {mrOtpError && (
+                <div style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', padding: '8px 12px', borderRadius: '8px' }}>
+                  {mrOtpError}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button 
+                  type="button" 
+                  className="btn-secondary-mobile"
+                  onClick={() => { setShowMrOtpModal(false); setPendingMrData(null); setMrOtpHint(''); setMrOtpCode(''); }}
+                  style={{ flex: 1, padding: '12px' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn-primary-mobile"
+                  style={{ flex: 2, padding: '12px' }}
+                  disabled={isVerifyingMrOtp || mrOtpCode.length < 6}
+                >
+                  {isVerifyingMrOtp ? 'Verifying...' : 'Verify & Register MR'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
