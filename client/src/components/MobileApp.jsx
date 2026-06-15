@@ -1578,40 +1578,33 @@ export default function MobileApp() {
         throw new Error(`Invalid credentials for a ${loginRoleTab === 'mr' ? 'Medical Representative' : 'Franchise Partner'}.`);
       }
 
-      if (res.role === 'admin') {
-        setIsLoggedIn(true);
-        setLoggedInUser(res.user);
-        setUserRole(res.role || 'distributor');
-        setActiveTab('home');
-        setCurrentView('dashboard');
-        setWhatsappNumber('919999999999');
-        // ── Show Welcome Popup ──
-        setShowWelcomePopup(true);
-
-        // ── Show New Launch Popup after 3.2s ──
-        setTimeout(async () => {
-          try {
-            const allProds = await getProducts();
-            const newLaunches = (allProds || []).filter(p => p.isNewLaunch);
-            if (newLaunches.length > 0) {
-              setLaunchPopupProduct(newLaunches[0]);
-              setShowLaunchPopup(true);
-            }
-          } catch (_) { /* silent fail */ }
-        }, 3200);
+      // Complete login directly without OTP for all roles
+      setIsLoggedIn(true);
+      setLoggedInUser(res.user);
+      setUserRole(res.role || 'distributor');
+      setActiveTab('home');
+      setCurrentView('dashboard');
+      
+      if (res.role === 'mr' && res.user.distributorMobile) {
+        setWhatsappNumber(res.user.distributorMobile);
       } else {
-        // Post-login secure OTP verification flow via Gmail SMTP
-        if (!res.user.email) {
-          throw new Error('Your account does not have a registered email address. Please contact Admin.');
-        }
-        const otpRes = await sendGmailOtp(res.user.email, 'login');
-        setPendingLoginUser(res.user);
-        setPendingUserRole(res.role);
-        setMockLoginSmsHint(otpRes.mockOtp || '123456');
-        setLoginOtpCode('');
-        setLoginOtpError('');
-        setShowLoginOtpModal(true);
+        setWhatsappNumber('919999999999');
       }
+
+      // ── Show Welcome Popup ──
+      setShowWelcomePopup(true);
+
+      // ── Show New Launch Popup after 3.2s ──
+      setTimeout(async () => {
+        try {
+          const allProds = await getProducts();
+          const newLaunches = (allProds || []).filter(p => p.isNewLaunch);
+          if (newLaunches.length > 0) {
+            setLaunchPopupProduct(newLaunches[0]);
+            setShowLaunchPopup(true);
+          }
+        } catch (_) { /* silent fail */ }
+      }, 3200);
 
     } catch (err) {
       setLoginError(err.message || 'Invalid username or password.');
