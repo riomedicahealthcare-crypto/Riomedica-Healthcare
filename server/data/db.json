@@ -9836,9 +9836,12 @@
     }
   ],
   "settings": {
-    "otpChannel": "smtp",
+    "otpChannel": "gmailApi",
     "smtpEmail": "riomedicahealthcare@gmail.com",
-    "smtpPassword": "wuvoaassufxtjsdg"
+    "smtpPassword": "wuvoaassufxtjsdg",
+    "gmailApiUrl": "https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec",
+    "brevoApiKey": "",
+    "brevoSenderEmail": ""
   },
   "admin": {
     "username": "admin",
