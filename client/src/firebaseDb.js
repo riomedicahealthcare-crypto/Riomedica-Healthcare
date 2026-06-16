@@ -97,6 +97,7 @@ export const fbDeleteCategory  = (id) => remove(ref(db, `categories/${id}`));
 export const fbGetOffers   = () => safeGet('offers').then(toArray);
 export const fbSetOffers   = (offers) => safeSet('offers', offers);
 export const fbAddOffer    = (offer) => push(ref(db, 'offers'), offer);
+export const fbSetOffer    = (id, offer) => safeSet(`offers/${id}`, offer);
 export const fbDeleteOffer = (id) => remove(ref(db, `offers/${id}`));
 
 // ─── BANNERS ─────────────────────────────────────────────────────────────────
@@ -104,9 +105,11 @@ export const fbDeleteOffer = (id) => remove(ref(db, `offers/${id}`));
 export const fbGetBanners   = () => safeGet('banners').then(toArray);
 export const fbSetBanners   = (banners) => safeSet('banners', banners);
 export const fbAddBanner    = (banner) => push(ref(db, 'banners'), banner);
+export const fbSetBanner    = (id, banner) => safeSet(`banners/${id}`, banner);
 export const fbDeleteBanner = (id) => remove(ref(db, `banners/${id}`));
 
 // ─── BRANDING ────────────────────────────────────────────────────────────────
+
 
 export const fbGetBranding = () => safeGet('branding');
 export const fbSetBranding = (branding) => safeSet('branding', branding);

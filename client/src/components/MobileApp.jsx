@@ -1317,9 +1317,9 @@ export default function MobileApp() {
     // Clean data coming from Firebase before setting state/localStorage to prevent
     // raw Base64 strings from bloating localStorage and causing QuotaExceededError.
     const unsubProducts   = subscribeToProducts((data)   => { 
-      if (data && data.length > 0) {
+      if (data) {
+        setProducts(data); 
         const clean = cleanProductsForClient(data);
-        setProducts(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.products = clean;
@@ -1328,9 +1328,9 @@ export default function MobileApp() {
       } 
     });
     const unsubCategories = subscribeToCategories((data) => { 
-      if (data && data.length > 0) {
+      if (data) {
+        setCategories(data); 
         const clean = cleanCategoriesForClient(data);
-        setCategories(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.categories = clean;
@@ -1340,8 +1340,8 @@ export default function MobileApp() {
     });
     const unsubOffers     = subscribeToOffers((data)     => { 
       if (data) {
+        setOffers(data); 
         const clean = cleanOffersForClient(data);
-        setOffers(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.offers = clean;
@@ -1351,8 +1351,8 @@ export default function MobileApp() {
     });
     const unsubBanners    = subscribeToBanners((data)    => { 
       if (data) {
+        setBanners(data); 
         const clean = cleanBannersForClient(data);
-        setBanners(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.banners = clean;
@@ -1362,8 +1362,8 @@ export default function MobileApp() {
     });
     const unsubBranding   = subscribeToBranding((data)   => { 
       if (data) {
+        setBranding(data); 
         const clean = cleanBrandingForClient(data);
-        setBranding(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.branding = clean;

@@ -1783,4 +1783,122 @@ export const cleanRegistrationsForClient = (registrations) => {
   }));
 };
 
+export const analyzeMedicine = (name = '', composition = '') => {
+  const comp = (composition || '').toLowerCase();
+  const nm = (name || '').toLowerCase();
+
+  // Initialize variables
+  let categoryId = 'tablets'; // Default category
+  let indications = '';
+  let dosage = '';
+  let lbl = '';
+
+  // 1. Check for Ophthalmic & Ear Drops
+  if (comp.includes('eye drop') || comp.includes('ear drop') || comp.includes('ophthalmic') || comp.includes('eye/ear drop') || comp.includes('carboxymethylcellulose') || nm.includes('eye drop') || nm.includes('ear drop') || (comp.includes('drops') && (comp.includes('moxifloxacin') || comp.includes('ciprofloxacin') || comp.includes('ofloxacin') || comp.includes('tobramycin') || comp.includes('timolol') || comp.includes('carboxymethyl') || comp.includes('lubricant') || comp.includes('naphazoline')))) {
+    categoryId = 'ophthalmic';
+    indications = "Bacterial conjunctivitis, eye irritation, dry eye syndrome, otitis externa, and general ear/eye infections.";
+    dosage = "Instill 1-2 drops in the affected eye/ear 3-4 times daily or as advised by the ophthalmologist/ENT specialist.";
+    lbl = "Sterile topical drops providing immediate antimicrobial action or lubrication to soothe ocular tissues, reduce redness, and clear localized infections.";
+  }
+  // 2. Check for Dental Care & Oral Hygiene
+  else if (comp.includes('chlorhexidine') || comp.includes('potassium nitrate') || comp.includes('toothpaste') || comp.includes('mouthwash') || comp.includes('gum paint') || comp.includes('dental') || nm.includes('dent') || nm.includes('shine') || nm.includes('gum') || comp.includes('monofluorophosphate') || comp.includes('triclosan') || comp.includes('tannic acid')) {
+    categoryId = 'dental';
+    indications = "Dental plaque, gingivitis, tooth sensitivity, mouth ulcers, and oral hygiene maintenance.";
+    dosage = "Rinse mouth with 10ml solution twice daily for 30 seconds, or apply gel to affected gums as directed.";
+    lbl = "Medicated oral care formulation containing active antiseptics or desensitizing agents to protect enamel, eliminate harmful microbes, and soothe inflamed oral tissues.";
+  }
+  // 3. Check for Injections & Critical Care
+  else if (comp.includes('injection') || comp.includes('inj.') || comp.includes('vial') || comp.includes('ampoule') || nm.includes(' inj') || nm.includes('-inj') || comp.includes('ceftriaxone injection') || comp.includes('pantoprazole injection') || comp.includes('methylprednisolone injection') || comp.includes('amikacin injection')) {
+    categoryId = 'injections';
+    indications = "Severe systemic infections, acute severe pain, emergency acid suppression, and critical care management.";
+    dosage = "To be administered intravenously (IV) or intramuscularly (IM) as directed by a physician or healthcare professional.";
+    lbl = "Sterile parenteral formulation designed for rapid systemic availability and immediate therapeutic effect in critical or acute care settings.";
+  }
+  // 4. Check for Infusions & IV Fluids
+  else if (comp.includes('infusion') || comp.includes('dextrose') || comp.includes('normal saline') || comp.includes('sodium chloride i.v.') || comp.includes('mannitol') || comp.includes('dns') || comp.includes('iv fluid')) {
+    categoryId = 'infusions';
+    indications = "Dehydration, electrolyte imbalance, fluid resuscitation, and vehicle for intravenous drug administration.";
+    dosage = "To be administered via intravenous infusion under strict medical supervision. Flow rate as prescribed.";
+    lbl = "Isotonic or hypertonic sterile infusion fluid carefully calibrated to restore intravascular volume, replenish essential electrolytes, and maintain acid-base balance.";
+  }
+  // 5. Check for Pediatric Drops / Care
+  else if (comp.includes('pediatric') || comp.includes('oral drops') || comp.includes('infant drops') || comp.includes('baby drops') || (comp.includes('drops') && (comp.includes('paracetamol') || comp.includes('multivitamin') || comp.includes('zinc') || comp.includes('lactobacillus') || comp.includes('enzyme') || comp.includes('colic')))) {
+    categoryId = 'pediatric';
+    indications = "Infantile colic, fever, pain, cold, cough, and nutritional supplementation in infants and children.";
+    dosage = "Administer the specified volume (in ml or drops) using the calibrated dropper/measuring cup, strictly as directed by the pediatrician.";
+    lbl = "Calibrated pediatric formulation designed for optimal dosing accuracy, pleasant taste, and gentle gastrointestinal tolerance in infants and children.";
+  }
+  // 6. Check for Dermatological & Topical Creams
+  else if (comp.includes('ketoconazole') || comp.includes('clotrimazole') || comp.includes('miconazole') || comp.includes('luliconazole') || comp.includes('terbinafine') || comp.includes('permethrin') || comp.includes('clobetasol') || comp.includes('beclomethasone') || comp.includes('fusidic') || comp.includes('mupirocin') || comp.includes('adapalene') || comp.includes('benzoyl peroxide') || comp.includes('coal tar') || comp.includes('sertaconazole') || comp.includes('ebastine') || comp.includes('calamine') || comp.includes('cream') || comp.includes('ointment') || comp.includes('dusting powder') || comp.includes('lotion') || comp.includes('shampoo') || comp.includes('soap') || nm.includes('soap') || nm.includes('cream') || (nm.includes('gel') && !nm.includes('dent') && !comp.includes('diclofenac') && !comp.includes('aceclofenac'))) {
+    categoryId = 'derma';
+    indications = "Fungal skin infections (ringworm, athlete's foot), bacterial dermatitis, eczema, psoriasis, acne vulgaris, and dry skin conditions.";
+    dosage = "Apply a thin layer to the affected area 2-3 times daily, or wash/dust as directed by the dermatologist.";
+    lbl = "Topical therapeutic agent providing targeted anti-fungal, anti-inflammatory, or antibacterial action, restoring the skin's protective barrier and relieving itching.";
+  }
+  // 7. Check for Cardio & Anti-diabetic
+  else if (comp.includes('amlodipine') || comp.includes('atenolol') || comp.includes('telmisartan') || comp.includes('losartan') || comp.includes('metoprolol') || comp.includes('ramipril') || comp.includes('atorvastatin') || comp.includes('rosuvastatin') || comp.includes('clopidogrel') || comp.includes('glimepiride') || comp.includes('metformin') || comp.includes('vildagliptin') || comp.includes('teneligliptin') || comp.includes('dapagliflozin') || comp.includes('empagliflozin') || comp.includes('gliclazide') || comp.includes('pioglitazone') || comp.includes('cardio') || comp.includes('diabetic') || nm.includes('diab') || nm.includes('card') || nm.includes('bp') || nm.includes('vas') || nm.includes('stat') || nm.includes('tensa')) {
+    categoryId = 'cardio-diabetic';
+    indications = "Hypertension (high blood pressure), angina pectoris (chest pain), chronic heart failure, and blood glucose control in Type 2 Diabetes Mellitus.";
+    dosage = "1 tablet daily in the morning or evening at the same time, or as directed by the cardiologist/endocrinologist.";
+    lbl = "Advanced cardiovascular/anti-diabetic therapeutic agent designed to optimize metabolic control and reduce cardiovascular complications.";
+  }
+  // 8. Check for Neurology & Psychotropics
+  else if (comp.includes('citicoline') || comp.includes('piracetam') || comp.includes('donepezil') || comp.includes('memantine') || comp.includes('pregabalin') || comp.includes('gabapentin') || comp.includes('amitriptyline') || comp.includes('nortriptyline') || comp.includes('duloxetine') || comp.includes('fluoxetine') || comp.includes('sertraline') || comp.includes('escitalopram') || comp.includes('clonazepam') || comp.includes('alprazolam') || comp.includes('diazepam') || comp.includes('lorazepam') || comp.includes('olanzapine') || comp.includes('quetiapine') || comp.includes('risperidone') || nm.includes('neuro') || nm.includes('brain') || (nm.includes('cobal') && (comp.includes('pregabalin') || comp.includes('gabapentin')))) {
+    categoryId = 'neurology';
+    indications = "Neuropathic pain, fibromyalgia, generalized anxiety disorder, cognitive impairment, stroke rehabilitation, and nerve health support.";
+    dosage = "1 tablet/capsule once or twice daily, preferably at bedtime, or as prescribed by the neurologist.";
+    lbl = "Neuroprotective or neuromodulating agent that stabilizes hyperexcited neurons, supports myelin sheath repair, and enhances neurotransmitter levels for optimal cognitive function.";
+  }
+  // 9. Check for Antibiotics & Anti-infectives
+  else if (comp.includes('cefpodoxime') || comp.includes('cefixime') || comp.includes('azithromycin') || comp.includes('clarithromycin') || comp.includes('amoxicillin') || comp.includes('moxifloxacin') || comp.includes('ofloxacin') || comp.includes('cefuroxime') || comp.includes('clavulanic') || comp.includes('clavulanate') || comp.includes('sulbactam') || comp.includes('ornidazole') || comp.includes('secnidazole') || comp.includes('linezolid') || comp.includes('linzolid') || comp.includes('clindamycin') || comp.includes('ciprofloxacin') || comp.includes('levofloxacin') || comp.includes('antibiotic') || comp.includes('meropenem') || comp.includes('piperacillin') || comp.includes('tazobactam') || comp.includes('ceftriaxone') || comp.includes('cefoperazone') || comp.includes('amikacin') || comp.includes('gentamicin') || comp.includes('colistin') || comp.includes('metronidazole') || comp.includes('doxycycline') || comp.includes('minocycline') || comp.includes('rifaximin') || comp.includes('norfloxacin') || nm.includes('pod') || nm.includes('cefi') || nm.includes('moxi') || nm.includes('flox') || nm.includes('clav') || nm.includes('amox') || nm.includes('cef')) {
+    categoryId = 'antibiotics';
+    indications = "Bacterial infections of the respiratory tract (bronchitis, pneumonia), ENT (otitis media, tonsillitis), urinary tract (UTI), and skin structures.";
+    dosage = "1 tablet once or twice daily after meals, completing the full course as prescribed by the physician.";
+    lbl = "Broad-spectrum antibacterial agent that inhibits bacterial cell wall synthesis or blocks vital protein production, effectively eliminating the pathogen and preventing drug resistance.";
+  }
+  // 10. Check for Cough, Cold & Anti-allergic
+  else if (comp.includes('montelukast') || comp.includes('levocetirizine') || comp.includes('cetirizine') || comp.includes('fexofenadine') || comp.includes('ambroxol') || comp.includes('guaiphenesin') || comp.includes('phenylephrine') || comp.includes('dextromethorphan') || comp.includes('terbutaline') || comp.includes('bromhexine') || comp.includes('chlorpheniramine') || comp.includes('salbutamol') || comp.includes('levosalbutamol') || comp.includes('ipratropium') || comp.includes('budesonide') || comp.includes('fluticasone') || comp.includes('cough') || comp.includes('cold') || comp.includes('allergy') || comp.includes('asthma') || nm.includes('cough') || nm.includes('cold') || nm.includes('kof') || nm.includes('cof') || nm.includes('hist') || nm.includes('allerg')) {
+    categoryId = 'cough-cold';
+    indications = "Productive or dry cough, allergic rhinitis, sneezing, running nose, congestion, and asthma prophylaxis.";
+    dosage = "1 tablet daily at bedtime, or 5-10ml syrup twice daily as prescribed by the physician.";
+    lbl = "Synergistic antihistamine, mucolytic, and bronchodilator formulation that relaxes airway smooth muscles, thins bronchial secretions, and blocks allergic receptors for rapid relief.";
+  }
+  // 11. Check for Analgesics & Pain Management
+  else if (comp.includes('aceclofenac') || comp.includes('paracetamol') || comp.includes('diclofenac') || comp.includes('nimesulide') || comp.includes('ibuprofen') || comp.includes('trypsin') || comp.includes('chymotrypsin') || comp.includes('serratiopeptidase') || comp.includes('diacerein') || comp.includes('glucosamine') || comp.includes('etoricoxib') || comp.includes('tramadol') || comp.includes('mefenamic') || comp.includes('ketorolac') || comp.includes('lornoxicam') || comp.includes('thiocolchicoside') || comp.includes('pain') || comp.includes('analgesic') || nm.includes('spas') || nm.includes('para') || nm.includes('fenac') || nm.includes('pain') || nm.includes('nimo') || nm.includes('flam') || nm.includes('ortho')) {
+    categoryId = 'pain-management';
+    indications = "Mild to moderate pain, fever, post-operative inflammation, muscle spasms, osteoarthritis, and rheumatoid arthritis.";
+    dosage = "1 tablet twice daily after meals or as directed by a physician for symptomatic pain relief.";
+    lbl = "Effective NSAID and proteolytic enzyme combination that inhibits COX enzymes (reducing pain-inducing prostaglandins) and resolves tissue edema to accelerate healing and restore mobility.";
+  }
+  // 12. Check for Gastrointestinal & Antacids
+  else if (comp.includes('pantoprazole') || comp.includes('rabeprazole') || comp.includes('omeprazole') || comp.includes('esomeprazole') || comp.includes('ranitidine') || comp.includes('domperidone') || comp.includes('sucralfate') || comp.includes('itopride') || comp.includes('levosulpiride') || comp.includes('digestive') || comp.includes('antacid') || comp.includes('magaldrate') || comp.includes('megaldrate') || comp.includes('simethicone') || comp.includes('sodium alginate') || comp.includes('charcoal') || comp.includes('gastro') || (comp.includes('acid') && !comp.includes('folic') && !comp.includes('amino') && !comp.includes('salicylic') && !comp.includes('ascorbic') && !comp.includes('clavulanic') && !comp.includes('ursodeoxycholic') && !comp.includes('tannic') && !comp.includes('alpha lipoic') && !comp.includes('hyaluronic')) || nm.includes('panto') || nm.includes('rab') || nm.includes('ome') || nm.includes('eso') || nm.includes('acid') || nm.includes('zyme') || nm.includes('cid') || nm.includes('gast')) {
+    categoryId = 'gastro';
+    indications = "Acidity, GERD (Gastroesophageal Reflux Disease), peptic ulcers, heartburn, bloating, and dyspepsia.";
+    dosage = "1 tablet/capsule daily in the morning before breakfast (on empty stomach) or as directed by a physician.";
+    lbl = "Proton pump inhibitor (PPI) or gastroprokinetic formulation that reduces stomach acid secretion and enhances gut motility for fast, long-lasting relief from acid reflux and digestive discomfort.";
+  }
+  // 13. Check for Multivitamins & Antioxidants
+  else if (comp.includes('calcium') || comp.includes('vitamin') || comp.includes('methylcobalamin') || comp.includes('zinc') || comp.includes('folate') || comp.includes('folic') || comp.includes('iron') || comp.includes('multivitamins') || comp.includes('antioxidant') || comp.includes('biotin') || comp.includes('lycopene') || comp.includes('coenzyme') || comp.includes('amino acid') || comp.includes('protein') || comp.includes('ginseng') || comp.includes('cranberry') || comp.includes('d-mannose') || comp.includes('nutrition') || comp.includes('supplement') || comp.includes('ferrous') || comp.includes('cholecalciferol') || comp.includes('calcitriol') || comp.includes('macobalamin') || comp.includes('omega') || nm.includes('vit') || nm.includes('cal') || nm.includes('iron') || nm.includes('gold') || nm.includes('plus') || nm.includes('multi') || nm.includes('nutri') || nm.includes('neuro') || nm.includes('active') || nm.includes('keto')) {
+    categoryId = 'multivitamins';
+    indications = "Nutritional deficiencies, calcium and bone mineralization support, neuropathies, fatigue, and general convalescence.";
+    dosage = "1 tablet/capsule daily after meals, preferably at bedtime, or as directed by a physician.";
+    lbl = "Comprehensive nutritional supplement that enhances bone density, supports hemoglobin synthesis, promotes myelin sheath regeneration, and neutralizes free radicals for cellular vitality.";
+  }
+  // 14. Tablets & Oral Solids (Default)
+  else {
+    categoryId = 'tablets';
+    indications = "Symptomatic relief and therapeutic management of indications associated with the active ingredients.";
+    dosage = "As directed by the physician or specialist.";
+    lbl = "High-efficacy pharmaceutical formulation manufactured under strict quality standards to ensure target bioavailability and patient compliance.";
+  }
+
+  return {
+    categoryId,
+    indications,
+    dosage,
+    lbl
+  };
+};
+
+
 

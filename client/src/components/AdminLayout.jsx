@@ -11,7 +11,8 @@ import {
   getOrders, updateOrderStatus, deleteOrder,
   loginUser, sendGmailOtp,
   verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword, getAdminSecurityStatus,
-  cleanProductsForClient, cleanCategoriesForClient, cleanBrandingForClient, cleanBannersForClient, cleanOffersForClient, cleanRegistrationsForClient
+  cleanProductsForClient, cleanCategoriesForClient, cleanBrandingForClient, cleanBannersForClient, cleanOffersForClient, cleanRegistrationsForClient,
+  analyzeMedicine
 } from '../utils';
 import { 
   syncAllToFirebase, 
@@ -22,8 +23,26 @@ import {
   subscribeToBranding, 
   subscribeToOrders, 
   subscribeToRegistrations,
-  subscribeToConnection
+  subscribeToConnection,
+  fbSetProduct,
+  fbDeleteProduct,
+  fbSetCategory,
+  fbDeleteCategory,
+  fbSetOffer,
+  fbDeleteOffer,
+  fbSetBanner,
+  fbDeleteBanner,
+  fbSetBranding
 } from '../firebaseDb';
+
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+  });
+};
 
 export default function AdminLayout() {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
@@ -402,9 +421,9 @@ export default function AdminLayout() {
     // Data coming from Firebase may contain raw Base64 strings — clean them before
     // setting state or saving to localStorage to avoid quota errors and broken URLs.
     const unsubProducts = subscribeToProducts((data) => {
-      if (data && data.length > 0) {
+      if (data) {
+        setProducts(data);
         const clean = cleanProductsForClient(data);
-        setProducts(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.products = clean;
@@ -414,9 +433,9 @@ export default function AdminLayout() {
     });
 
     const unsubCategories = subscribeToCategories((data) => {
-      if (data && data.length > 0) {
+      if (data) {
+        setCategories(data);
         const clean = cleanCategoriesForClient(data);
-        setCategories(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.categories = clean;
@@ -427,8 +446,8 @@ export default function AdminLayout() {
 
     const unsubOffers = subscribeToOffers((data) => {
       if (data) {
+        setOffers(data);
         const clean = cleanOffersForClient(data);
-        setOffers(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.offers = clean;
@@ -439,8 +458,8 @@ export default function AdminLayout() {
 
     const unsubBanners = subscribeToBanners((data) => {
       if (data) {
+        setBanners(data);
         const clean = cleanBannersForClient(data);
-        setBanners(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.banners = clean;
@@ -451,8 +470,8 @@ export default function AdminLayout() {
 
     const unsubBranding = subscribeToBranding((data) => {
       if (data) {
+        setBranding(data);
         const clean = cleanBrandingForClient(data);
-        setBranding(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
           db.branding = clean;
@@ -598,42 +617,293 @@ export default function AdminLayout() {
     setGenPassword(randPass);
   };
 
+  // Auto-Fill Details from Chemical Composition
+  const handleAutoFillDetails = () => {
+    if (!prodComposition) {
+      alert("Please enter the Chemical Composition first to analyze.");
+      return;
+    }
+
+    const comp = prodComposition.toLowerCase();
+
+    // 1. Determine Details
+    let indications = "";
+    let dosage = "";
+    let lbl = "";
+    let categoryId = ""; // Therapeutic Category ID
+
+    // Gastro & Antacids
+    if (
+      comp.includes('pantoprazole') || comp.includes('rabeprazole') || 
+      comp.includes('omeprazole') || comp.includes('esomeprazole') || 
+      comp.includes('ranitidine') || comp.includes('domperidone') || 
+      comp.includes('sucralfate') || comp.includes('itopride') || 
+      comp.includes('levosulpiride') || comp.includes('digestive') || 
+      comp.includes('acid') || comp.includes('gastro')
+    ) {
+      categoryId = "gastro";
+      indications = "Acidity, GERD (Gastroesophageal Reflux Disease), peptic ulcers, heartburn, bloating, and dyspepsia.";
+      dosage = "1 tablet/capsule daily in the morning before breakfast (on empty stomach) or as directed by a physician.";
+      lbl = "Proton pump inhibitor (PPI) or gastroprokinetic formulation that reduces stomach acid secretion and enhances gut motility for fast, long-lasting relief from acid reflux and digestive discomfort.";
+    }
+    // Antibiotics & Anti-infectives
+    else if (
+      comp.includes('cefpodoxime') || comp.includes('cefixime') || 
+      comp.includes('azithromycin') || comp.includes('clarithromycin') || 
+      comp.includes('amoxicillin') || comp.includes('moxifloxacin') || 
+      comp.includes('ofloxacin') || comp.includes('cefuroxime') || 
+      comp.includes('clavulanic') || comp.includes('sulbactam') || 
+      comp.includes('ornidazole') || comp.includes('secnidazole') || 
+      comp.includes('linzolid') || comp.includes('clindamycin') || 
+      comp.includes('ciprofloxacin') || comp.includes('levofloxacin') || 
+      comp.includes('antibiotic') || comp.includes('podoxime')
+    ) {
+      categoryId = "antibiotics";
+      indications = "Bacterial infections of the respiratory tract (bronchitis, pneumonia), ENT (otitis media, tonsillitis), urinary tract (UTI), and skin structures.";
+      dosage = "1 tablet once or twice daily after meals, completing the full course as prescribed by the physician.";
+      lbl = "Broad-spectrum antibacterial agent that inhibits bacterial cell wall synthesis or blocks vital protein production, effectively eliminating the pathogen and preventing drug resistance.";
+    }
+    // Cardiovascular & Anti-diabetic
+    else if (
+      comp.includes('amlodipine') || comp.includes('atenolol') || 
+      comp.includes('telmisartan') || comp.includes('losartan') || 
+      comp.includes('metoprolol') || comp.includes('ramipril') || 
+      comp.includes('atorvastatin') || comp.includes('rosuvastatin') || 
+      comp.includes('clopidogrel') || comp.includes('glimepiride') || 
+      comp.includes('metformin') || comp.includes('vildagliptin') || 
+      comp.includes('teneligliptin') || comp.includes('cardio') || 
+      comp.includes('diabetic')
+    ) {
+      categoryId = "cardio-diabetic";
+      indications = "Hypertension (high blood pressure), angina pectoris (chest pain), chronic heart failure, and dyslipidemia.";
+      dosage = "1 tablet daily in the morning or evening at the same time, or as directed by the cardiologist.";
+      lbl = "Cardiovascular therapeutic agent designed to selectively block calcium channels or angiotensin receptors, dilating blood vessels to optimize cardiac output and reduce vascular resistance.";
+    }
+    // Multivitamins & Antioxidants / Nutritional
+    else if (
+      comp.includes('calcium') || comp.includes('vitamin') || 
+      comp.includes('methylcobalamin') || comp.includes('zinc') || 
+      comp.includes('folate') || comp.includes('iron') || 
+      comp.includes('multivitamin') || comp.includes('antioxidant') || 
+      comp.includes('biotin') || comp.includes('lycopene') || 
+      comp.includes('coenzyme') || comp.includes('amino acid') || 
+      comp.includes('protein') || comp.includes('ginseng') || 
+      comp.includes('cranberry') || comp.includes('d-mannose') || 
+      comp.includes('nutrition') || comp.includes('supplement') ||
+      comp.includes('glucosamine') || comp.includes('co-enzyme') ||
+      comp.includes('folic') || comp.includes('calcitriol')
+    ) {
+      categoryId = "multivitamins";
+      indications = "Nutritional deficiencies, calcium and bone mineralization support, neuropathies, fatigue, and general convalescence.";
+      dosage = "1 tablet/capsule daily after meals, preferably at bedtime, or as directed by a physician.";
+      lbl = "Comprehensive nutritional supplement that enhances bone density, supports hemoglobin synthesis, promotes myelin sheath regeneration, and neutralizes free radicals for cellular vitality.";
+    }
+    // Cough, Cold & Anti-allergic
+    else if (
+      comp.includes('montelukast') || comp.includes('levocetirizine') || 
+      comp.includes('cetirizine') || comp.includes('fexofenadine') || 
+      comp.includes('ambroxol') || comp.includes('guaiphenesin') || 
+      comp.includes('phenylephrine') || comp.includes('dextromethorphan') || 
+      comp.includes('terbutaline') || comp.includes('bromhexine') || 
+      comp.includes('cough') || comp.includes('cold') || 
+      comp.includes('allergy') || comp.includes('asthma')
+    ) {
+      categoryId = "cough-cold";
+      indications = "Productive or dry cough, allergic rhinitis, sneezing, running nose, congestion, and asthma prophylaxis.";
+      dosage = "1 tablet daily at bedtime, or 5-10ml syrup twice daily as prescribed by the physician.";
+      lbl = "Synergistic antihistamine, mucolytic, and bronchodilator formulation that relaxes airway smooth muscles, thins bronchial secretions, and blocks allergic receptors for rapid relief.";
+    }
+    // Dental Care & Oral Hygiene
+    else if (
+      comp.includes('tooth') || comp.includes('gum') || 
+      comp.includes('mouthwash') || comp.includes('dental') ||
+      comp.includes('chlorhexidine') || comp.includes('potassium nitrate') ||
+      comp.includes('triclosan')
+    ) {
+      categoryId = "dental";
+      indications = "Dental plaque, gingivitis, bad breath (halitosis), and teeth sensitivity.";
+      dosage = "Use a small amount for brushing twice daily, or rinse with 10ml of solution for 1 minute twice daily. Do not swallow.";
+      lbl = "Advanced oral hygiene formulation that provides antibacterial protection, reduces bacterial load, and strengthens enamel for healthy gums and teeth.";
+    }
+    // Dermatological & Topical Creams
+    else if (
+      comp.includes('soap') || comp.includes('powder') || 
+      comp.includes('cream') || comp.includes('ointment') || 
+      comp.includes('topical') || comp.includes('ketoconazole') ||
+      comp.includes('clotrimazole') || comp.includes('miconazole') ||
+      comp.includes('luliconazole') || comp.includes('permethrin') ||
+      comp.includes('clobetasol') || comp.includes('fusidic') ||
+      comp.includes('derma')
+    ) {
+      categoryId = "derma";
+      indications = "Fungal skin infections (tinea pedis, ringworm), eczema, dermatitis, acne, skin rashes, and localized skin inflammation.";
+      dosage = "Apply a thin layer to the affected area 1-2 times daily, or wash affected area with soap as directed by the dermatologist.";
+      lbl = "Dermatological topical agent engineered for deep skin penetration, offering robust anti-inflammatory, anti-fungal, or antibacterial action directly at the lesion site.";
+    }
+    // Ophthalmic & Ear Drops
+    else if (
+      comp.includes('eye drop') || comp.includes('ear drop') || 
+      comp.includes('carboxymethylcellulose') || comp.includes('moxifloxacin eye') || 
+      comp.includes('ciprofloxacin eye') || comp.includes('naphazoline') || 
+      comp.includes('chloramphenicol') || comp.includes('drop') ||
+      comp.includes('ophthalmic')
+    ) {
+      categoryId = "ophthalmic";
+      indications = "Bacterial conjunctivitis, eye irritation, dry eye syndrome, otitis externa, and general ear/eye infections.";
+      dosage = "Instill 1-2 drops in the affected eye/ear 3-4 times daily or as advised by the ophthalmologist/ENT specialist.";
+      lbl = "Sterile topical drops providing immediate antimicrobial action or lubrication to soothe ocular tissues, reduce redness, and clear localized infections.";
+    }
+    // Neurology & Psychotropics
+    else if (
+      comp.includes('gabapentin') || comp.includes('pregabalin') || 
+      comp.includes('piracetam') || comp.includes('citicoline') || 
+      comp.includes('levetiracetam') || comp.includes('neurology')
+    ) {
+      categoryId = "neurology";
+      indications = "Neuropathic pain, diabetic neuropathy, post-herpetic neuralgia, cognitive enhancement, and seizure control.";
+      dosage = "1 tablet/capsule daily or as directed by a neurologist, preferably at night.";
+      lbl = "Neurological regulator that modulates calcium channel activity to suppress hyper-excited neuropathic pain signals and support neural cellular metabolism.";
+    }
+    // Analgesics & Pain Management
+    else if (
+      comp.includes('aceclofenac') || comp.includes('paracetamol') || 
+      comp.includes('diclofenac') || comp.includes('nimesulide') || 
+      comp.includes('ibuprofen') || comp.includes('trypsin') || 
+      comp.includes('chymotrypsin') || comp.includes('serratiopeptidase') || 
+      comp.includes('diacerein') || comp.includes('etoricoxib') || 
+      comp.includes('tramadol') || comp.includes('pain') || 
+      comp.includes('analgesic') || comp.includes('serratio')
+    ) {
+      categoryId = "pain-management";
+      indications = "Mild to moderate pain, fever, post-operative inflammation, muscle spasms, osteoarthritis, and rheumatoid arthritis.";
+      dosage = "1 tablet twice daily after meals or as directed by a physician for symptomatic pain relief.";
+      lbl = "Effective NSAID and proteolytic enzyme combination that inhibits COX enzymes (reducing pain-inducing prostaglandins) and resolves tissue edema to accelerate healing and restore mobility.";
+    }
+    // Injections & Critical Care
+    else if (
+      comp.includes('injection') || comp.includes('inj') || 
+      comp.includes('ampoule') || comp.includes('vial')
+    ) {
+      categoryId = "injections";
+      indications = "Severe acute infections, critical care electrolyte restoration, or systemic emergencies requiring direct vascular access.";
+      dosage = "Administered intravenously or intramuscularly by qualified healthcare professionals as directed.";
+      lbl = "Sterile parenteral formulation designed for rapid systemic onset, bypasses first-pass metabolism to achieve immediate therapeutic blood concentration.";
+    }
+    // Infusions & IV Fluids
+    else if (
+      comp.includes('infusion') || comp.includes('iv fluids')
+    ) {
+      categoryId = "infusions";
+      indications = "Dehydration, fluid replenishment, electrolyte imbalance, or dilution of compatible intravenous medications.";
+      dosage = "Administered by continuous intravenous infusion under medical supervision.";
+      lbl = "Isotonic sterile intravenous fluid ensuring prompt volume expansion, acid-base stabilization, and systemic hydration.";
+    }
+    // Pediatric Care & Oral Drops
+    else if (
+      comp.includes('suspension') || comp.includes('pediatric') || 
+      comp.includes('drops') || comp.includes('susp')
+    ) {
+      categoryId = "pediatric";
+      indications = "Pediatric fever, common cold, respiratory symptoms, or colic pain.";
+      dosage = "Dosage based on body weight and age as prescribed by a pediatrician. Use calibrated dropper.";
+      lbl = "Palatable pediatric formulation designed to ensure precise dosage control, safe administration, and excellent compliance in children.";
+    }
+    // Default Fallback (Tablets & Oral Solids)
+    else {
+      categoryId = "tablets";
+      indications = "Symptomatic relief and therapeutic management of indications associated with the active ingredients.";
+      dosage = "As directed by the physician or specialist.";
+      lbl = "High-efficacy pharmaceutical formulation manufactured under strict quality standards to ensure target bioavailability and patient compliance.";
+    }
+
+    // Apply Autofill States
+    if (categoryId) {
+      const match = categories.find(c => c.id === categoryId);
+      if (match) {
+        setProdCategory(categoryId);
+      }
+    }
+    setProdIndications(indications);
+    setProdDosage(dosage);
+    setProdLbl(lbl);
+  };
+
   // Handle Product Form Submit (Create & Update)
   const handleProductSubmit = async (e) => {
     e.preventDefault();
     
-    const formData = new FormData();
-    formData.append('name', prodName);
-    formData.append('categoryId', prodCategory);
-    formData.append('composition', prodComposition);
-    formData.append('indications', prodIndications);
-    formData.append('dosage', prodDosage);
-    formData.append('lbl', prodLbl);
-    formData.append('videoUrl', prodVideoUrl);
-    formData.append('isNewLaunch', prodIsNewLaunch.toString());
-    formData.append('mrp', prodMrp);
+    setIsProcessingPackshots(true);
     
-    if (prodPackshotFile) {
-      formData.append('packshot', prodPackshotFile);
-    }
-    
-    if (prodVisualAidsFiles.length > 0) {
-      for (let i = 0; i < prodVisualAidsFiles.length; i++) {
-        formData.append('visualAids', prodVisualAidsFiles[i]);
-      }
-    }
-
     try {
+      let packshotBase64 = '';
+      if (prodPackshotFile) {
+        packshotBase64 = await fileToBase64(prodPackshotFile);
+      } else if (editingProduct) {
+        packshotBase64 = editingProduct.packshot || '';
+      }
+
+      let visualAidsBase64s = [];
+      if (prodVisualAidsFiles.length > 0) {
+        visualAidsBase64s = await Promise.all(
+          prodVisualAidsFiles.map(file => fileToBase64(file))
+        );
+        if (editingProduct && keepExistingAids && editingProduct.visualAids) {
+          visualAidsBase64s = [...editingProduct.visualAids, ...visualAidsBase64s];
+        }
+      } else if (editingProduct) {
+        visualAidsBase64s = editingProduct.visualAids || [];
+      }
+
+      const pId = editingProduct ? editingProduct.id : 'prod_' + Math.random().toString(36).substr(2, 9);
+      const productData = {
+        id: pId,
+        name: prodName,
+        categoryId: prodCategory,
+        composition: prodComposition,
+        indications: prodIndications,
+        dosage: prodDosage,
+        lbl: prodLbl,
+        videoUrl: prodVideoUrl,
+        isNewLaunch: prodIsNewLaunch,
+        mrp: prodMrp,
+        packshot: packshotBase64,
+        visualAids: visualAidsBase64s
+      };
+
+      // Write directly to Firebase RTDB
+      await fbSetProduct(pId, productData);
+
+      // Background sync to server API (failing silently if offline)
+      const formData = new FormData();
+      formData.append('name', prodName);
+      formData.append('categoryId', prodCategory);
+      formData.append('composition', prodComposition);
+      formData.append('indications', prodIndications);
+      formData.append('dosage', prodDosage);
+      formData.append('lbl', prodLbl);
+      formData.append('videoUrl', prodVideoUrl);
+      formData.append('isNewLaunch', prodIsNewLaunch.toString());
+      formData.append('mrp', prodMrp);
+      if (prodPackshotFile) {
+        formData.append('packshot', prodPackshotFile);
+      }
+      if (prodVisualAidsFiles.length > 0) {
+        for (let i = 0; i < prodVisualAidsFiles.length; i++) {
+          formData.append('visualAids', prodVisualAidsFiles[i]);
+        }
+      }
       if (editingProduct) {
         formData.append('keepExistingAids', keepExistingAids.toString());
-        await updateProduct(editingProduct.id, formData);
+        updateProduct(editingProduct.id, formData).catch(() => {});
       } else {
-        await addProduct(formData);
+        addProduct(formData).catch(() => {});
       }
+
       setIsProductModalOpen(false);
-      await syncToFirebase(); // 🔥 Auto-sync to Firebase
     } catch (err) {
       alert("Failed to save product: " + err.message);
+    } finally {
+      setIsProcessingPackshots(false);
     }
   };
 
@@ -641,10 +911,10 @@ export default function AdminLayout() {
   const handleDeleteProduct = async (id) => {
     if (confirm("Are you sure you want to delete this product?")) {
       try {
-        await deleteProduct(id);
-        await syncToFirebase(); // 🔥 Auto-sync to Firebase
+        await fbDeleteProduct(id);
+        deleteProduct(id).catch(() => {});
       } catch (err) {
-        alert(err.message);
+        alert("Failed to delete product: " + err.message);
       }
     }
   };
@@ -671,23 +941,45 @@ export default function AdminLayout() {
   const handleOfferSubmit = async (e) => {
     e.preventDefault();
     
-    const formData = new FormData();
-    formData.append('title', offerTitle);
-    formData.append('description', offerDesc);
-    formData.append('discount', offerDiscount);
-    formData.append('productId', offerProduct);
-    formData.append('expiry', offerExpiry);
+    setIsProcessingPackshots(true);
     
-    if (offerImageFile) {
-      formData.append('image', offerImageFile);
-    }
-
     try {
-      await addOffer(formData);
+      let offerImageBase64 = '';
+      if (offerImageFile) {
+        offerImageBase64 = await fileToBase64(offerImageFile);
+      }
+
+      const oId = 'offer_' + Math.random().toString(36).substr(2, 9);
+      const offerData = {
+        id: oId,
+        title: offerTitle,
+        description: offerDesc,
+        discount: offerDiscount,
+        productId: offerProduct,
+        expiry: offerExpiry,
+        imageUrl: offerImageBase64
+      };
+
+      // Write directly to Firebase
+      await fbSetOffer(oId, offerData);
+
+      // Background sync to server API
+      const formData = new FormData();
+      formData.append('title', offerTitle);
+      formData.append('description', offerDesc);
+      formData.append('discount', offerDiscount);
+      formData.append('productId', offerProduct);
+      formData.append('expiry', offerExpiry);
+      if (offerImageFile) {
+        formData.append('image', offerImageFile);
+      }
+      addOffer(formData).catch(() => {});
+
       setIsOfferModalOpen(false);
-      await syncToFirebase(); // 🔥 Auto-sync to Firebase
     } catch (err) {
       alert("Failed to save offer: " + err.message);
+    } finally {
+      setIsProcessingPackshots(false);
     }
   };
 
@@ -695,10 +987,10 @@ export default function AdminLayout() {
   const handleDeleteOffer = async (id) => {
     if (confirm("Are you sure you want to remove this offer?")) {
       try {
-        await deleteOffer(id);
-        await syncToFirebase(); // 🔥 Auto-sync to Firebase
+        await fbDeleteOffer(id);
+        deleteOffer(id).catch(() => {});
       } catch (err) {
-        alert(err.message);
+        alert("Failed to delete offer: " + err.message);
       }
     }
   };
@@ -708,29 +1000,62 @@ export default function AdminLayout() {
     e.preventDefault();
     setIsSavingBranding(true);
 
-    const formData = new FormData();
-    formData.append('companyName', brandName);
-    formData.append('tagline', brandTag);
-    formData.append('landingTitle', brandLandingTitle);
-    formData.append('landingDescription', brandLandingDesc);
-    if (brandFile) {
-      formData.append('logo', brandFile);
-    }
-    if (brandLandingBgFile) {
-      formData.append('landingBgImage', brandLandingBgFile);
-    }
-    if (brandBadgeFile) {
-      formData.append('topRightBadge', brandBadgeFile);
-    }
-
     try {
-      const updated = await updateBranding(formData);
-      setBranding(updated);
+      let logoBase64 = '';
+      if (brandFile) {
+        logoBase64 = await fileToBase64(brandFile);
+      } else {
+        logoBase64 = branding.logo || '';
+      }
+
+      let landingBgBase64 = '';
+      if (brandLandingBgFile) {
+        landingBgBase64 = await fileToBase64(brandLandingBgFile);
+      } else {
+        landingBgBase64 = branding.landingBgImage || '';
+      }
+
+      let badgeBase64 = '';
+      if (brandBadgeFile) {
+        badgeBase64 = await fileToBase64(brandBadgeFile);
+      } else {
+        badgeBase64 = branding.topRightBadge || '';
+      }
+
+      const brandingData = {
+        companyName: brandName,
+        tagline: brandTag,
+        landingTitle: brandLandingTitle,
+        landingDescription: brandLandingDesc,
+        logo: logoBase64,
+        landingBgImage: landingBgBase64,
+        topRightBadge: badgeBase64
+      };
+
+      // Write directly to Firebase
+      await fbSetBranding(brandingData);
+
+      // Background sync to server API
+      const formData = new FormData();
+      formData.append('companyName', brandName);
+      formData.append('tagline', brandTag);
+      formData.append('landingTitle', brandLandingTitle);
+      formData.append('landingDescription', brandLandingDesc);
+      if (brandFile) {
+        formData.append('logo', brandFile);
+      }
+      if (brandLandingBgFile) {
+        formData.append('landingBgImage', brandLandingBgFile);
+      }
+      if (brandBadgeFile) {
+        formData.append('topRightBadge', brandBadgeFile);
+      }
+      updateBranding(formData).catch(() => {});
+
       setIsBrandingInitialized(false);
       setBrandFile(null);
       setBrandLandingBgFile(null);
       setBrandBadgeFile(null);
-      await syncToFirebase(); // 🔥 Auto-sync to Firebase
       alert('Branding settings saved and synced to all devices!');
     } catch (err) {
       alert(err.message || 'Failed to update branding settings.');
@@ -1421,17 +1746,22 @@ export default function AdminLayout() {
     e.preventDefault();
     if (!newCatName) return;
     try {
-      await addCategory({
+      const cId = newCatName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const categoryData = {
+        id: cId,
         name: newCatName,
         description: newCatDesc,
         icon: newCatIcon
-      });
+      };
+      
+      await fbSetCategory(cId, categoryData);
+      addCategory(categoryData).catch(() => {});
+      
       setNewCatName('');
       setNewCatDesc('');
       setNewCatIcon('Activity');
-      await syncToFirebase(); // 🔥 Auto-sync to Firebase
     } catch (err) {
-      alert(err.message);
+      alert("Failed to add category: " + err.message);
     }
   };
 
@@ -1439,10 +1769,10 @@ export default function AdminLayout() {
   const handleDeleteCategory = async (id) => {
     if (confirm("Deleting a category will unassign its products. Proceed?")) {
       try {
-        await deleteCategory(id);
-        await syncToFirebase(); // 🔥 Auto-sync to Firebase
+        await fbDeleteCategory(id);
+        deleteCategory(id).catch(() => {});
       } catch (err) {
-        alert(err.message);
+        alert("Failed to delete category: " + err.message);
       }
     }
   };
@@ -4044,7 +4374,32 @@ export default function AdminLayout() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Chemical Composition *</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label style={{ marginBottom: 0 }}>Chemical Composition *</label>
+                      <button 
+                        type="button" 
+                        onClick={handleAutoFillDetails}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                          color: 'white',
+                          borderRadius: '6px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontWeight: '600',
+                          boxShadow: '0 2px 4px rgba(37,99,235,0.2)',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                      >
+                        ✨ Auto-Analyze & Fill
+                      </button>
+                    </div>
                     <input 
                       type="text" 
                       className="form-control" 
