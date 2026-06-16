@@ -1593,8 +1593,24 @@ export default function AdminLayout() {
     if (packshotsToUpdate.length === 0) return;
     setIsProcessingPackshots(true);
     setPackshotMatcherMessage(null);
+    
+    const BATCH_SIZE = 5;
+    const total = packshotsToUpdate.length;
+    let savedCount = 0;
+    
     try {
-      const response = await bulkUpdateProducts(packshotsToUpdate);
+      // Process sequential batches
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        const batch = packshotsToUpdate.slice(i, i + BATCH_SIZE);
+        
+        setPackshotMatcherMessage({
+          success: true,
+          text: `Saving packshots: batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(total / BATCH_SIZE)} (${savedCount} / ${total} completed)...`
+        });
+        
+        await bulkUpdateProducts(batch);
+        savedCount += batch.length;
+      }
       
       const updatedList = products.map(p => {
         const update = packshotsToUpdate.find(u => u.id === p.id);
@@ -1608,11 +1624,15 @@ export default function AdminLayout() {
         localStorage.setItem('riomedica_db', JSON.stringify(db));
       } catch (err) {}
 
+      setPackshotMatcherMessage({
+        success: true,
+        text: "Syncing database with Cloud Storage (Firebase)..."
+      });
       await syncToFirebase();
 
       setPackshotMatcherMessage({
         success: true,
-        text: `Successfully matched and saved ${response.count} packshot images to products database!`
+        text: `Successfully matched and saved all ${total} packshot images to products database in batches!`
       });
 
       setMatchedPackshots([]);
@@ -1622,7 +1642,7 @@ export default function AdminLayout() {
     } catch (err) {
       setPackshotMatcherMessage({
         success: false,
-        text: `Error saving packshots: ${err.message}`
+        text: `Error saving packshots (saved ${savedCount} of ${total}): ${err.message}`
       });
     } finally {
       setIsProcessingPackshots(false);
