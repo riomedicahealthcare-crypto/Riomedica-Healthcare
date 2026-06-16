@@ -186,6 +186,17 @@ const readDb = () => {
   }
 };
 
+const saveBase64ToCloud = async (type, id, base64Str) => {
+  if (!firebaseDb || !base64Str || !base64Str.startsWith('data:')) return;
+  try {
+    const path = `${type}s/${id}`; // e.g. packshots/prod_xxx, categorys/cat_xxx
+    await set(ref(firebaseDb, path), base64Str);
+    console.log(`[Firebase Cloud Storage] Saved raw Base64 for ${type} ${id} to cloud`);
+  } catch (err) {
+    console.error(`[Firebase Cloud Storage] Failed to save Base64 for ${type} ${id}:`, err.message);
+  }
+};
+
 const base64ToFile = (base64Str, prefix, id, extension = 'png') => {
   if (!base64Str) return '';
   if (!base64Str.startsWith('data:')) return base64Str;
@@ -203,6 +214,12 @@ const base64ToFile = (base64Str, prefix, id, extension = 'png') => {
     
     const filePath = path.join(uploadDir, filename);
     fs.writeFileSync(filePath, buffer);
+
+    // Save Base64 to cloud in the background asynchronously
+    saveBase64ToCloud(prefix, id, base64Str).catch(err => {
+      console.error(`[Firebase Cloud Storage] Error backing up ${prefix} ${id}:`, err.message);
+    });
+
     return `/uploads/${filename}`;
   } catch (err) {
     console.error(`[Base64 Sync] Error writing file for ${prefix}_${id}:`, err.message);
@@ -210,88 +227,23 @@ const base64ToFile = (base64Str, prefix, id, extension = 'png') => {
   }
 };
 
-const rebuildUploadsFromDb = (db) => {
+const processDbImagesInPlace = (db) => {
   if (!db) return;
   
+  const toUrl = (base64Str, prefix, id) => {
+    if (!base64Str) return '';
+    if (!base64Str.startsWith('data:')) return base64Str;
+    return base64ToFile(base64Str, prefix, id);
+  };
+
   if (Array.isArray(db.categories)) {
     db.categories.forEach(cat => {
-      if (cat.icon && cat.icon.startsWith('data:image/')) {
-        base64ToFile(cat.icon, 'category', cat.id);
-      }
+      cat.icon = toUrl(cat.icon, 'category', cat.id);
     });
   }
 
   if (Array.isArray(db.products)) {
     db.products.forEach(p => {
-      if (p.packshot && p.packshot.startsWith('data:image/')) {
-        base64ToFile(p.packshot, 'packshot', p.id);
-      }
-      if (Array.isArray(p.visualAids)) {
-        p.visualAids.forEach((aid, idx) => {
-          if (aid && aid.startsWith('data:image/')) {
-            base64ToFile(aid, 'visualaid', `${p.id}_${idx}`);
-          }
-        });
-      }
-    });
-  }
-
-  if (db.branding) {
-    if (db.branding.logo && db.branding.logo.startsWith('data:image/')) {
-      base64ToFile(db.branding.logo, 'branding', 'logo');
-    }
-    if (db.branding.landingBgImage && db.branding.landingBgImage.startsWith('data:image/')) {
-      base64ToFile(db.branding.landingBgImage, 'branding', 'landingBgImage');
-    }
-    if (db.branding.topRightBadge && db.branding.topRightBadge.startsWith('data:image/')) {
-      base64ToFile(db.branding.topRightBadge, 'branding', 'topRightBadge');
-    }
-  }
-
-  if (Array.isArray(db.banners)) {
-    db.banners.forEach(b => {
-      if (b.imageUrl && b.imageUrl.startsWith('data:image/')) {
-        base64ToFile(b.imageUrl, 'banner', b.id);
-      }
-    });
-  }
-
-  if (Array.isArray(db.registrations)) {
-    db.registrations.forEach(r => {
-      if (r.drugLicenceUrl && r.drugLicenceUrl.startsWith('data:image/')) {
-        base64ToFile(r.drugLicenceUrl, 'reg_licence', r.id);
-      }
-      if (r.gstUrl && r.gstUrl.startsWith('data:image/')) {
-        base64ToFile(r.gstUrl, 'reg_gst', r.id);
-      }
-      if (r.panUrl && r.panUrl.startsWith('data:image/')) {
-        base64ToFile(r.panUrl, 'reg_pan', r.id);
-      }
-    });
-  }
-};
-
-const cleanDbForClient = (db) => {
-  if (!db) return db;
-  const clean = JSON.parse(JSON.stringify(db));
-
-  // Use the real base64ToFile which WRITES the physical file and returns the URL.
-  // This ensures the static file exists on disk whenever the client fetches products.
-  // Falls back gracefully: if base64Str is already a URL, returns it unchanged.
-  const toUrl = (base64Str, prefix, id) => {
-    if (!base64Str) return '';
-    if (!base64Str.startsWith('data:')) return base64Str; // already a URL
-    return base64ToFile(base64Str, prefix, id); // writes file, returns /uploads/...
-  };
-
-  if (Array.isArray(clean.categories)) {
-    clean.categories.forEach(cat => {
-      cat.icon = toUrl(cat.icon, 'category', cat.id);
-    });
-  }
-
-  if (Array.isArray(clean.products)) {
-    clean.products.forEach(p => {
       p.packshot = toUrl(p.packshot, 'packshot', p.id);
       if (Array.isArray(p.visualAids)) {
         p.visualAids = p.visualAids.map((aid, idx) => toUrl(aid, 'visualaid', `${p.id}_${idx}`));
@@ -299,33 +251,45 @@ const cleanDbForClient = (db) => {
     });
   }
 
-  if (clean.branding) {
-    clean.branding.logo = toUrl(clean.branding.logo, 'branding', 'logo');
-    clean.branding.landingBgImage = toUrl(clean.branding.landingBgImage, 'branding', 'landingBgImage');
-    clean.branding.topRightBadge = toUrl(clean.branding.topRightBadge, 'branding', 'topRightBadge');
+  if (db.branding) {
+    db.branding.logo = toUrl(db.branding.logo, 'branding', 'logo');
+    db.branding.landingBgImage = toUrl(db.branding.landingBgImage, 'branding', 'landingBgImage');
+    db.branding.topRightBadge = toUrl(db.branding.topRightBadge, 'branding', 'topRightBadge');
   }
 
-  if (Array.isArray(clean.banners)) {
-    clean.banners.forEach(b => {
+  if (Array.isArray(db.banners)) {
+    db.banners.forEach(b => {
       b.imageUrl = toUrl(b.imageUrl, 'banner', b.id);
     });
   }
 
-  if (Array.isArray(clean.registrations)) {
-    clean.registrations.forEach(r => {
+  if (Array.isArray(db.registrations)) {
+    db.registrations.forEach(r => {
       r.drugLicenceUrl = toUrl(r.drugLicenceUrl, 'reg_licence', r.id);
       r.gstUrl = toUrl(r.gstUrl, 'reg_gst', r.id);
       r.panUrl = toUrl(r.panUrl, 'reg_pan', r.id);
     });
   }
+};
 
-  return clean;
+const rebuildUploadsFromDb = (db) => {
+  // processDbImagesInPlace will automatically write files and back them up to Firebase.
+  processDbImagesInPlace(db);
+};
+
+const cleanDbForClient = (db) => {
+  if (!db) return db;
+  // db is already clean of Base64 strings since we clean in-place during writeDb!
+  // Return a copy to ensure safe client responses.
+  return JSON.parse(JSON.stringify(db));
 };
 
 const writeDb = (data) => {
   try {
+    // Process images (write physical files, trigger separate backups, and replace with URL strings in-place)
+    processDbImagesInPlace(data);
+
     fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
-    rebuildUploadsFromDb(data);
     if (firebaseDb) {
       set(ref(firebaseDb, '/'), data)
         .then(() => console.log("[Firebase Sync] Server database successfully backed up to Firebase cloud"))
@@ -335,6 +299,7 @@ const writeDb = (data) => {
     console.error("Error writing to database file", err);
   }
 };
+
 
 const syncFromFirebaseOnStartup = async () => {
   if (!firebaseDb) {
@@ -469,31 +434,63 @@ app.get('/api/products', (req, res) => {
   res.json(cleanDbForClient(db).products);
 });
 
-// Fallback image endpoint — serves the raw Base64 image from db.json when the
+// Fallback image endpoint — serves the raw Base64 image from Firebase RTDB or local backup when the
 // static /uploads/ file has been lost (e.g. after Render container restart).
 // Client hits this URL: /api/image/packshot/<productId>
-app.get('/api/image/:type/:id', (req, res) => {
+app.get('/api/image/:type/:id', async (req, res) => {
   try {
     const { type, id } = req.params;
-    const db = readDb();
     let base64Str = '';
 
-    if (type === 'packshot') {
-      const product = (db.products || []).find(p => p.id === id);
-      base64Str = product?.packshot || '';
-    } else if (type === 'category') {
-      const cat = (db.categories || []).find(c => c.id === id);
-      base64Str = cat?.icon || '';
-    } else if (type === 'banner') {
-      const banner = (db.banners || []).find(b => b.id === id);
-      base64Str = banner?.imageUrl || '';
-    } else if (type === 'branding-logo') {
-      base64Str = db.branding?.logo || '';
+    // 1. Try to fetch from Firebase separate cloud storage (high priority)
+    if (firebaseDb) {
+      if (type === 'packshot') {
+        const snap = await get(ref(firebaseDb, `packshots/${id}`));
+        base64Str = snap.exists() ? snap.val() : '';
+      } else if (type === 'visualaid') {
+        const snap = await get(ref(firebaseDb, `visualaids/${id}`));
+        base64Str = snap.exists() ? snap.val() : '';
+      } else if (type === 'category') {
+        const snap = await get(ref(firebaseDb, `categorys/${id}`));
+        base64Str = snap.exists() ? snap.val() : '';
+      } else if (type === 'banner') {
+        const snap = await get(ref(firebaseDb, `banners/${id}`));
+        base64Str = snap.exists() ? snap.val() : '';
+      } else if (type === 'branding-logo') {
+        const snap = await get(ref(firebaseDb, `brandings/logo`));
+        base64Str = snap.exists() ? snap.val() : '';
+      }
+    }
+
+    // 2. Offline fallback: search local db.json if Firebase was empty/offline
+    if (!base64Str) {
+      const db = readDb();
+      if (type === 'packshot') {
+        const product = (db.products || []).find(p => p.id === id);
+        base64Str = product?.packshot || '';
+      } else if (type === 'visualaid') {
+        const parts = id.split('_');
+        const prodId = parts.slice(0, -1).join('_');
+        const idx = parseInt(parts[parts.length - 1], 10);
+        const product = (db.products || []).find(p => p.id === prodId);
+        base64Str = product?.visualAids?.[idx] || '';
+      } else if (type === 'category') {
+        const cat = (db.categories || []).find(c => c.id === id);
+        base64Str = cat?.icon || '';
+      } else if (type === 'banner') {
+        const banner = (db.banners || []).find(b => b.id === id);
+        base64Str = banner?.imageUrl || '';
+      } else if (type === 'branding-logo') {
+        base64Str = db.branding?.logo || '';
+      }
     }
 
     if (!base64Str || !base64Str.startsWith('data:')) {
-      return res.status(404).json({ error: 'Image not found in database' });
+      return res.status(404).json({ error: 'Image not found in database or cloud storage' });
     }
+
+    // Reconstruct the static file on disk so the next request hits nginx/static directly
+    base64ToFile(base64Str, type, id);
 
     const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
     if (!matches) return res.status(400).json({ error: 'Invalid image data' });
