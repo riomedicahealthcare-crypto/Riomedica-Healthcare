@@ -1629,24 +1629,28 @@ export default function AdminLayout() {
         await bulkUpdateProducts(batch);
         savedCount += batch.length;
       }
-      
-      const updatedList = products.map(p => {
-        const update = packshotsToUpdate.find(u => u.id === p.id);
-        return update ? { ...p, packshot: update.packshot } : p;
-      });
-      setProducts(updatedList);
-
-      try {
-        const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-        db.products = updatedList;
-        localStorage.setItem('riomedica_db', JSON.stringify(db));
-      } catch (err) {}
 
       setPackshotMatcherMessage({
         success: true,
-        text: "Syncing database with Cloud Storage (Firebase)..."
+        text: `All ${total} packshots saved. Refreshing product list...`
       });
-      await syncToFirebase();
+
+      // Reload products fresh from server so we get the correct static /uploads/ URLs.
+      // Avoid using stale closure `products` or raw base64 dataUrls — the server
+      // has already written the physical files, so the static URLs will resolve correctly.
+      try {
+        const freshProds = await getProducts();
+        if (freshProds && freshProds.length > 0) {
+          setProducts(freshProds);
+          try {
+            const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+            db.products = freshProds;
+            localStorage.setItem('riomedica_db', JSON.stringify(db));
+          } catch (_) {}
+        }
+      } catch (reloadErr) {
+        console.warn('[Packshots] Could not reload products from server:', reloadErr.message);
+      }
 
       setPackshotMatcherMessage({
         success: true,
@@ -1666,6 +1670,7 @@ export default function AdminLayout() {
       setIsProcessingPackshots(false);
     }
   };
+
 
   const resetPackshotMatcher = () => {
     setMatchedPackshots([]);
