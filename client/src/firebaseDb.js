@@ -8,9 +8,18 @@ import {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
+const withTimeout = (promise, timeoutMs = 3000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Firebase operation timed out')), timeoutMs)
+    )
+  ]);
+};
+
 export const safeGet = async (path) => {
   try {
-    const snap = await get(ref(db, path));
+    const snap = await withTimeout(get(ref(db, path)));
     return snap.exists() ? snap.val() : null;
   } catch (err) {
     console.error(`[FB] read error @ ${path}:`, err.message);
@@ -20,7 +29,7 @@ export const safeGet = async (path) => {
 
 export const safeSet = async (path, data) => {
   try {
-    await set(ref(db, path), data);
+    await withTimeout(set(ref(db, path), data));
     return true;
   } catch (err) {
     console.error(`[FB] write error @ ${path}:`, err.message);
@@ -203,7 +212,7 @@ export const fbWriteOtp = async (type, key, otp, expiresAt = Date.now() + 5 * 60
 export const fbDeleteOtp = async (type, key) => {
   const cleanKey = sanitizeFirebaseKey(key);
   try {
-    await remove(ref(db, `active_otps/${type}/${cleanKey}`));
+    await withTimeout(remove(ref(db, `active_otps/${type}/${cleanKey}`)));
     return true;
   } catch (err) {
     console.error(`[FB] delete OTP error @ active_otps/${type}/${cleanKey}:`, err.message);

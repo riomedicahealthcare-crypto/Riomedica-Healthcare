@@ -1449,11 +1449,9 @@ export const sendMobileOtp = async (mobile) => {
     body: JSON.stringify({ mobile })
   });
   if (res && res.mockOtp) {
-    try {
-      await fbWriteOtp('mobile', mobile, res.mockOtp);
-    } catch (fbErr) {
+    fbWriteOtp('mobile', mobile, res.mockOtp).catch((fbErr) => {
       console.warn('[FB] failed to write mobile OTP to Firebase:', fbErr.message);
-    }
+    });
   }
   return res;
 };
@@ -1485,11 +1483,9 @@ export const sendEmailOtp = async (usernameOrEmail) => {
     body: JSON.stringify({ usernameOrEmail })
   });
   if (res && res.mockOtp) {
-    try {
-      await fbWriteOtp('email_reset', usernameOrEmail, res.mockOtp);
-    } catch (fbErr) {
+    fbWriteOtp('email_reset', usernameOrEmail, res.mockOtp).catch((fbErr) => {
       console.warn('[FB] failed to write email reset OTP to Firebase:', fbErr.message);
-    }
+    });
   }
   return res;
 };
@@ -1623,11 +1619,9 @@ export const sendGmailOtp = async (email, type) => {
     body: JSON.stringify({ email, type })
   });
   if (res && res.mockOtp) {
-    try {
-      await fbWriteOtp('email', email, res.mockOtp);
-    } catch (fbErr) {
+    fbWriteOtp('email', email, res.mockOtp).catch((fbErr) => {
       console.warn('[FB] failed to write Gmail OTP to Firebase:', fbErr.message);
-    }
+    });
   }
   return res;
 };
