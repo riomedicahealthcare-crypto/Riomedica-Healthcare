@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf';
 import { App as CapApp } from '@capacitor/app';
 import { 
   getProducts, getCategories, getCollections, getOffers, createCollection, 
-  deleteCollection, registerUser, loginUser, IMAGE_BASE, getLocalFallbackStatus, 
+  deleteCollection, registerUser, loginUser, IMAGE_BASE, getImgUrl, getLocalFallbackStatus, 
   resetOfflineDb, sendMobileOtp, verifyMobileOtp, sendEmailOtp, verifyEmailReset,
   getBranding, updateBranding, getBanners, getMRs, addMR, deleteMR, getVisits, addVisit,
   getMROffers, addMROffer, deleteMROffer, updateProduct, sendAiMessage, addOrder,
@@ -1976,7 +1976,7 @@ export default function MobileApp() {
     
     if (product.packshot) {
       slides.push({
-        url: product.packshot.startsWith('http') ? product.packshot : `${IMAGE_BASE}${product.packshot}`,
+        url: getImgUrl(product.packshot),
         title: `${product.name} - Packshot`,
         sub: product.composition
       });
@@ -1993,7 +1993,7 @@ export default function MobileApp() {
     if (product.visualAids && product.visualAids.length > 0) {
       product.visualAids.forEach((aid, i) => {
         slides.push({
-          url: aid.startsWith('http') ? aid : `${IMAGE_BASE}${aid}`,
+          url: getImgUrl(aid),
           title: `${product.name} - Detailer Page ${i + 1}`,
           sub: product.indications
         });
@@ -2023,7 +2023,7 @@ export default function MobileApp() {
 
       if (prod.packshot) {
         slides.push({
-          url: prod.packshot.startsWith('http') ? prod.packshot : `${IMAGE_BASE}${prod.packshot}`,
+          url: getImgUrl(prod.packshot),
           title: `${prod.name} - Packshot`,
           sub: prod.composition
         });
@@ -2040,7 +2040,7 @@ export default function MobileApp() {
       if (prod.visualAids && prod.visualAids.length > 0) {
         prod.visualAids.forEach((aid, i) => {
           slides.push({
-            url: aid.startsWith('http') ? aid : `${IMAGE_BASE}${aid}`,
+            url: getImgUrl(aid),
             title: `${prod.name} - Slide ${i + 1}`,
             sub: prod.indications
           });
@@ -2146,7 +2146,7 @@ export default function MobileApp() {
               }}
             >
               {branding.logo ? (
-                <img src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={getImgUrl(branding.logo)} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               )}
@@ -3447,7 +3447,7 @@ export default function MobileApp() {
         <div className="mobile-header-logo">
           {branding.logo ? (
             <img 
-              src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} 
+              src={getImgUrl(branding.logo)} 
               alt="Logo" 
               style={{ width: '75px', height: '75px', borderRadius: '12px', objectFit: 'contain', background: '#fff', padding: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}
             />
@@ -3644,7 +3644,7 @@ export default function MobileApp() {
                     >
                       {/* Banner image */}
                       <img
-                        src={banner.imageUrl.startsWith('http') ? banner.imageUrl : `${IMAGE_BASE}${banner.imageUrl}`}
+                        src={getImgUrl(banner.imageUrl)}
                         alt={banner.title || 'Promotional Banner'}
                         style={{
                           width: '100%',
@@ -4107,7 +4107,7 @@ export default function MobileApp() {
                   >
                     <div className="product-image-container" style={{ width: '48px', height: '48px' }}>
                       {prod.packshot ? (
-                        <img src={prod.packshot.startsWith('http') ? prod.packshot : `${IMAGE_BASE}${prod.packshot}`} alt={prod.name} />
+                        <img src={getImgUrl(prod.packshot)} alt={prod.name} />
                       ) : (
                         <span className="fallback-image-text" style={{ fontSize: '0.65rem' }}>{prod.name.split(' ')[0]}</span>
                       )}
@@ -4819,7 +4819,7 @@ export default function MobileApp() {
                   >
                     <div className="product-image-container">
                       {prod.packshot ? (
-                        <img src={prod.packshot.startsWith('http') ? prod.packshot : `${IMAGE_BASE}${prod.packshot}`} alt={prod.name} />
+                        <img src={getImgUrl(prod.packshot)} alt={prod.name} />
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                           <Icons.Container size={24} color="#64748b" />
@@ -4965,7 +4965,7 @@ export default function MobileApp() {
                   >
                     <div className="product-image-container" style={{ borderColor: 'rgba(16, 185, 129, 0.2)' }}>
                       {prod.packshot ? (
-                        <img src={prod.packshot.startsWith('http') ? prod.packshot : `${IMAGE_BASE}${prod.packshot}`} alt={prod.name} />
+                        <img src={getImgUrl(prod.packshot)} alt={prod.name} />
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                           <Icons.Sparkles size={24} color="#10b981" />
@@ -5229,7 +5229,7 @@ export default function MobileApp() {
                         {offer.imageUrl ? (
                           <div style={{ width: '100%', height: '120px', overflow: 'hidden' }}>
                             <img
-                              src={offer.imageUrl.startsWith('http') ? offer.imageUrl : `${IMAGE_BASE}${offer.imageUrl}`}
+                              src={getImgUrl(offer.imageUrl)}
                               alt={offer.title}
                               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
@@ -5643,7 +5643,7 @@ export default function MobileApp() {
                   >
                     {selectedProduct.packshot ? (
                       <img 
-                        src={selectedProduct.packshot.startsWith('http') ? selectedProduct.packshot : `${IMAGE_BASE}${selectedProduct.packshot}`} 
+                        src={getImgUrl(selectedProduct.packshot)} 
                         alt={selectedProduct.name} 
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                       />
@@ -5703,7 +5703,7 @@ export default function MobileApp() {
                             setCurrentSlideIndex(selectedProduct.packshot ? idx + 1 : idx);
                           }}
                         >
-                          <img src={aid.startsWith('http') ? aid : `${IMAGE_BASE}${aid}`} alt="slide" />
+                          <img src={getImgUrl(aid)} alt="slide" />
                           <div style={{ position: 'absolute', bottom: '4px', right: '6px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px' }}>
                             Slide {idx + 1}
                           </div>
@@ -6102,7 +6102,7 @@ export default function MobileApp() {
                     <div style={{ width: '64px', height: '64px', borderRadius: '14px', border: '2px solid rgba(16,185,129,0.3)', background: 'rgba(255,255,255,0.05)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       {(logoPreview || branding.logo) ? (
                         <img
-                          src={logoPreview || (branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`)}
+                          src={logoPreview || (getImgUrl(branding.logo))}
                           alt="Logo"
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
@@ -7299,9 +7299,7 @@ export default function MobileApp() {
 
               {launchPopupProduct.packshot ? (
                 <img
-                  src={launchPopupProduct.packshot.startsWith('http')
-                    ? launchPopupProduct.packshot
-                    : `${IMAGE_BASE}${launchPopupProduct.packshot}`}
+                  src={getImgUrl(launchPopupProduct.packshot)}
                   alt={launchPopupProduct.name}
                   style={{
                     maxHeight: '140px', maxWidth: '80%',

@@ -30,6 +30,12 @@ const getImageBase = () => {
 const API_BASE = getApiBase();
 export const IMAGE_BASE = getImageBase();
 
+export const getImgUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http') || url.startsWith('data:')) return url;
+  return `${IMAGE_BASE}${url}`;
+};
+
 // Fallback Initial Data matching server/data/db.json
 const FALLBACK_DATA = {
   categories: [

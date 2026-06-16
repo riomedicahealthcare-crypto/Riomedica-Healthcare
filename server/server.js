@@ -120,6 +120,35 @@ function requireAdminAuth(req, res, next) {
   next();
 }
 
+const fileToDataUrl = (file) => {
+  if (!file || !file.path) return '';
+  try {
+    const fileBuffer = fs.readFileSync(file.path);
+    const ext = path.extname(file.originalname).toLowerCase();
+    let mimeType = 'image/jpeg';
+    if (ext === '.png') mimeType = 'image/png';
+    else if (ext === '.gif') mimeType = 'image/gif';
+    else if (ext === '.webp') mimeType = 'image/webp';
+    else if (ext === '.pdf') mimeType = 'application/pdf';
+    else if (ext === '.svg') mimeType = 'image/svg+xml';
+    
+    const base64 = fileBuffer.toString('base64');
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    
+    // Clean up local file to save space and prevent accumulation
+    try {
+      fs.unlinkSync(file.path);
+    } catch (err) {
+      console.warn(`[Base64 Sync] Failed to delete temporary file ${file.path}:`, err.message);
+    }
+    
+    return dataUrl;
+  } catch (err) {
+    console.error(`[Base64 Sync] Error converting file ${file.path} to Data URL:`, err.message);
+    return '';
+  }
+};
+
 // Database helper functions
 const readDb = () => {
   try {
@@ -275,10 +304,10 @@ app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
 
   if (req.files) {
     if (req.files['packshot'] && req.files['packshot'][0]) {
-      packshotUrl = `/uploads/${req.files['packshot'][0].filename}`;
+      packshotUrl = fileToDataUrl(req.files['packshot'][0]);
     }
     if (req.files['visualAids']) {
-      visualAidsUrls = req.files['visualAids'].map(file => `/uploads/${file.filename}`);
+      visualAidsUrls = req.files['visualAids'].map(file => fileToDataUrl(file));
     }
   }
 
@@ -318,10 +347,10 @@ app.put('/api/products/:id', requireAdminAuth, productUploads, (req, res) => {
   // If new files uploaded
   if (req.files) {
     if (req.files['packshot'] && req.files['packshot'][0]) {
-      packshotUrl = `/uploads/${req.files['packshot'][0].filename}`;
+      packshotUrl = fileToDataUrl(req.files['packshot'][0]);
     }
     if (req.files['visualAids'] && req.files['visualAids'].length > 0) {
-      const newAids = req.files['visualAids'].map(file => `/uploads/${file.filename}`);
+      const newAids = req.files['visualAids'].map(file => fileToDataUrl(file));
       if (keepExistingAids === 'true') {
         visualAidsUrls = [...visualAidsUrls, ...newAids];
       } else {
@@ -455,7 +484,7 @@ app.post('/api/offers', requireAdminAuth, offerUpload, (req, res) => {
 
   let imageUrl = '';
   if (req.file) {
-    imageUrl = `/uploads/${req.file.filename}`;
+    imageUrl = fileToDataUrl(req.file);
   }
 
   const newOffer = {
@@ -504,13 +533,13 @@ app.post('/api/register', registerUploads, (req, res) => {
 
   if (req.files) {
     if (req.files['drugLicence'] && req.files['drugLicence'][0]) {
-      drugLicenceUrl = `/uploads/${req.files['drugLicence'][0].filename}`;
+      drugLicenceUrl = fileToDataUrl(req.files['drugLicence'][0]);
     }
     if (req.files['gst'] && req.files['gst'][0]) {
-      gstUrl = `/uploads/${req.files['gst'][0].filename}`;
+      gstUrl = fileToDataUrl(req.files['gst'][0]);
     }
     if (req.files['pan'] && req.files['pan'][0]) {
-      panUrl = `/uploads/${req.files['pan'][0].filename}`;
+      panUrl = fileToDataUrl(req.files['pan'][0]);
     }
   }
 
@@ -1462,13 +1491,13 @@ app.post('/api/branding', requireAdminAuth, brandingUpload, (req, res) => {
 
   if (req.files) {
     if (req.files.logo && req.files.logo[0]) {
-      db.branding.logo = `/uploads/${req.files.logo[0].filename}`;
+      db.branding.logo = fileToDataUrl(req.files.logo[0]);
     }
     if (req.files.landingBgImage && req.files.landingBgImage[0]) {
-      db.branding.landingBgImage = `/uploads/${req.files.landingBgImage[0].filename}`;
+      db.branding.landingBgImage = fileToDataUrl(req.files.landingBgImage[0]);
     }
     if (req.files.topRightBadge && req.files.topRightBadge[0]) {
-      db.branding.topRightBadge = `/uploads/${req.files.topRightBadge[0].filename}`;
+      db.branding.topRightBadge = fileToDataUrl(req.files.topRightBadge[0]);
     }
   }
 
@@ -1531,7 +1560,7 @@ app.post('/api/banners', requireAdminAuth, bannerUpload, (req, res) => {
   const newBanner = {
     id,
     title: title || '',
-    imageUrl: `/uploads/${req.file.filename}`,
+    imageUrl: fileToDataUrl(req.file),
     linkUrl: linkUrl || '',
     linkProductId: linkProductId || ''
   };

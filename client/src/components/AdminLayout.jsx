@@ -6,7 +6,7 @@ import {
   getProducts, getCategories, getCollections, addProduct, 
   updateProduct, deleteProduct, resetProducts, addCategory, deleteCategory, 
   getOffers, addOffer, deleteOffer, getRegistrations, approveRegistration,
-  denyRegistration, IMAGE_BASE, getLocalFallbackStatus, getBranding, updateBranding,
+  denyRegistration, IMAGE_BASE, getImgUrl, getLocalFallbackStatus, getBranding, updateBranding,
   getBanners, addBanner, deleteBanner, bulkImportProducts, getSettings, updateSettings,
   getOrders, updateOrderStatus, deleteOrder,
   loginUser, sendGmailOtp,
@@ -1699,7 +1699,7 @@ export default function AdminLayout() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {branding.logo ? (
               <img 
-                src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} 
+                src={getImgUrl(branding.logo)} 
                 alt="Logo" 
                 style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover' }}
               />
@@ -2289,7 +2289,7 @@ export default function AdminLayout() {
                           >
                             {prod.packshot ? (
                               <img 
-                                src={prod.packshot.startsWith('http') ? prod.packshot : `${IMAGE_BASE}${prod.packshot}`} 
+                                src={getImgUrl(prod.packshot)} 
                                 alt="pack" 
                                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                               />
@@ -2495,7 +2495,7 @@ export default function AdminLayout() {
                           >
                             {offer.imageUrl ? (
                               <img 
-                                src={offer.imageUrl.startsWith('http') ? offer.imageUrl : `${IMAGE_BASE}${offer.imageUrl}`} 
+                                src={getImgUrl(offer.imageUrl)} 
                                 alt="flyer" 
                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                               />
@@ -2629,7 +2629,7 @@ export default function AdminLayout() {
                               title="Click to zoom license paper"
                             >
                               {reg.drugLicence ? (
-                                <img src={reg.drugLicence.startsWith('http') ? reg.drugLicence : `${IMAGE_BASE}${reg.drugLicence}`} alt="License" />
+                                <img src={getImgUrl(reg.drugLicence)} alt="License" />
                               ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '6px', fontSize: '0.65rem', color: '#94a3b8' }}>
                                   <Icons.FileText size={18} /> View Document
@@ -2647,7 +2647,7 @@ export default function AdminLayout() {
                                   title="Click to zoom GST copy"
                                   style={{ width: '60px', height: '45px', flexShrink: 0, position: 'relative' }}
                                 >
-                                  <img src={reg.gst.startsWith('http') ? reg.gst : `${IMAGE_BASE}${reg.gst}`} alt="GST" />
+                                  <img src={getImgUrl(reg.gst)} alt="GST" />
                                   <span style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '0.55rem', textAlign: 'center', fontWeight: 'bold' }}>GST</span>
                                 </div>
                               ) : null}
@@ -2658,7 +2658,7 @@ export default function AdminLayout() {
                                   title="Click to zoom PAN card"
                                   style={{ width: '60px', height: '45px', flexShrink: 0, position: 'relative' }}
                                 >
-                                  <img src={reg.pan.startsWith('http') ? reg.pan : `${IMAGE_BASE}${reg.pan}`} alt="PAN" />
+                                  <img src={getImgUrl(reg.pan)} alt="PAN" />
                                   <span style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '0.55rem', textAlign: 'center', fontWeight: 'bold' }}>PAN</span>
                                 </div>
                               ) : null}
@@ -2777,7 +2777,7 @@ export default function AdminLayout() {
                         {brandFile ? (
                           <img src={URL.createObjectURL(brandFile)} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : branding.logo ? (
-                          <img src={branding.logo.startsWith('http') ? branding.logo : `${IMAGE_BASE}${branding.logo}`} alt="Current" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img src={getImgUrl(branding.logo)} alt="Current" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
                           <Icons.Image size={24} color="#94a3b8" />
                         )}
@@ -2845,7 +2845,7 @@ export default function AdminLayout() {
                         {brandLandingBgFile ? (
                           <img src={URL.createObjectURL(brandLandingBgFile)} alt="Bg Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : branding.landingBgImage ? (
-                          <img src={branding.landingBgImage.startsWith('http') ? branding.landingBgImage : `${IMAGE_BASE}${branding.landingBgImage}`} alt="Current Bg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img src={getImgUrl(branding.landingBgImage)} alt="Current Bg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
                           <Icons.Image size={24} color="#94a3b8" />
                         )}
@@ -2890,7 +2890,7 @@ export default function AdminLayout() {
                         {brandBadgeFile ? (
                           <img src={URL.createObjectURL(brandBadgeFile)} alt="Badge Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : branding.topRightBadge ? (
-                          <img src={branding.topRightBadge.startsWith('http') ? branding.topRightBadge : `${IMAGE_BASE}${branding.topRightBadge}`} alt="Current Badge" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img src={getImgUrl(branding.topRightBadge)} alt="Current Badge" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
                           <Icons.Image size={24} color="#94a3b8" />
                         )}
@@ -3148,7 +3148,7 @@ export default function AdminLayout() {
                       >
                         <div style={{ aspectRatio: '16/9', overflow: 'hidden' }}>
                           <img 
-                            src={ban.imageUrl.startsWith('http') ? ban.imageUrl : `${IMAGE_BASE}${ban.imageUrl}`} 
+                            src={getImgUrl(ban.imageUrl)} 
                             alt={ban.title} 
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                           />
@@ -3758,7 +3758,7 @@ export default function AdminLayout() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-admin-muted)' }}>Current:</span>
                         <img 
-                          src={editingProduct.packshot.startsWith('http') ? editingProduct.packshot : `${IMAGE_BASE}${editingProduct.packshot}`} 
+                          src={getImgUrl(editingProduct.packshot)} 
                           alt="existing-pack" 
                           style={{ width: '40px', height: '40px', objectFit: 'contain', border: '1px solid #ddd', borderRadius: '4px' }}
                         />
@@ -4019,7 +4019,7 @@ export default function AdminLayout() {
             onClick={(e) => e.stopPropagation()}
           >
             <img 
-              src={zoomedImage.startsWith('http') ? zoomedImage : `${IMAGE_BASE}${zoomedImage}`} 
+              src={getImgUrl(zoomedImage)} 
               alt="Zoomed Document" 
               style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block', objectFit: 'contain' }}
             />
