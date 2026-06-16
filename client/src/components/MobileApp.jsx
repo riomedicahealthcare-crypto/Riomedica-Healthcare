@@ -9,7 +9,8 @@ import {
   getBranding, updateBranding, getBanners, getMRs, addMR, deleteMR, getVisits, addVisit,
   getMROffers, addMROffer, deleteMROffer, updateProduct, sendAiMessage, addOrder,
   getOrders, updateOrderStatus, deleteOrder, changeUserPassword, resetMRPassword,
-  sendGmailOtp, verifyGmailOtp
+  sendGmailOtp, verifyGmailOtp,
+  cleanProductsForClient, cleanCategoriesForClient, cleanBrandingForClient, cleanBannersForClient, cleanOffersForClient
 } from '../utils';
 import {
   syncAllToFirebase, pullFullBackupFromFirebase,
@@ -1313,52 +1314,59 @@ export default function MobileApp() {
     loadLocalData();
 
     // 🔥 Firebase real-time listeners — rep app auto-updates when admin makes changes
+    // Clean data coming from Firebase before setting state/localStorage to prevent
+    // raw Base64 strings from bloating localStorage and causing QuotaExceededError.
     const unsubProducts   = subscribeToProducts((data)   => { 
       if (data && data.length > 0) {
-        setProducts(data); 
+        const clean = cleanProductsForClient(data);
+        setProducts(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.products = data;
+          db.products = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       } 
     });
     const unsubCategories = subscribeToCategories((data) => { 
       if (data && data.length > 0) {
-        setCategories(data); 
+        const clean = cleanCategoriesForClient(data);
+        setCategories(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.categories = data;
+          db.categories = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       } 
     });
     const unsubOffers     = subscribeToOffers((data)     => { 
       if (data) {
-        setOffers(data); 
+        const clean = cleanOffersForClient(data);
+        setOffers(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.offers = data;
+          db.offers = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       } 
     });
     const unsubBanners    = subscribeToBanners((data)    => { 
       if (data) {
-        setBanners(data); 
+        const clean = cleanBannersForClient(data);
+        setBanners(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.banners = data;
+          db.banners = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       } 
     });
     const unsubBranding   = subscribeToBranding((data)   => { 
       if (data) {
-        setBranding(data); 
+        const clean = cleanBrandingForClient(data);
+        setBranding(clean); 
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.branding = data;
+          db.branding = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       } 

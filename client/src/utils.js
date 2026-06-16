@@ -1717,3 +1717,70 @@ export const changeAdminPassword = (newPassword, otp) => safeFetch(`${API_BASE}/
   body: JSON.stringify({ newPassword, otp })
 });
 
+// Helper to clean base64 data URLs client-side to prevent QuotaExceededError and keep state small
+export const getCleanUrl = (base64Str, prefix, id) => {
+  if (!base64Str) return '';
+  if (!base64Str.startsWith('data:')) return base64Str;
+  const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) return base64Str;
+  const ext = matches[1].split('/')[1] || 'png';
+  return `/uploads/${prefix}_${id}.${ext}`;
+};
+
+export const cleanProductsForClient = (products) => {
+  if (!Array.isArray(products)) return products;
+  return products.map(p => {
+    const clean = { ...p };
+    clean.packshot = getCleanUrl(clean.packshot, 'packshot', clean.id);
+    if (Array.isArray(clean.visualAids)) {
+      clean.visualAids = clean.visualAids.map((aid, idx) => getCleanUrl(aid, 'visualaid', `${clean.id}_${idx}`));
+    }
+    return clean;
+  });
+};
+
+export const cleanCategoriesForClient = (categories) => {
+  if (!Array.isArray(categories)) return categories;
+  return categories.map(cat => ({
+    ...cat,
+    icon: getCleanUrl(cat.icon, 'category', cat.id)
+  }));
+};
+
+export const cleanBrandingForClient = (branding) => {
+  if (!branding) return branding;
+  return {
+    ...branding,
+    logo: getCleanUrl(branding.logo, 'branding', 'logo'),
+    landingBgImage: getCleanUrl(branding.landingBgImage, 'branding', 'landingBgImage'),
+    topRightBadge: getCleanUrl(branding.topRightBadge, 'branding', 'topRightBadge')
+  };
+};
+
+export const cleanBannersForClient = (banners) => {
+  if (!Array.isArray(banners)) return banners;
+  return banners.map(b => ({
+    ...b,
+    imageUrl: getCleanUrl(b.imageUrl, 'banner', b.id)
+  }));
+};
+
+export const cleanOffersForClient = (offers) => {
+  if (!Array.isArray(offers)) return offers;
+  return offers.map(o => ({
+    ...o,
+    imageUrl: getCleanUrl(o.imageUrl, 'offer', o.id)
+  }));
+};
+
+export const cleanRegistrationsForClient = (registrations) => {
+  if (!Array.isArray(registrations)) return registrations;
+  return registrations.map(r => ({
+    ...r,
+    drugLicenceUrl: getCleanUrl(r.drugLicenceUrl, 'reg_licence', r.id),
+    gstUrl: getCleanUrl(r.gstUrl, 'reg_gst', r.id),
+    panUrl: getCleanUrl(r.panUrl, 'reg_pan', r.id)
+  }));
+};
+
+

@@ -10,7 +10,8 @@ import {
   getBanners, addBanner, deleteBanner, bulkImportProducts, bulkUpdateProducts, getSettings, updateSettings,
   getOrders, updateOrderStatus, deleteOrder,
   loginUser, sendGmailOtp,
-  verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword, getAdminSecurityStatus
+  verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword, getAdminSecurityStatus,
+  cleanProductsForClient, cleanCategoriesForClient, cleanBrandingForClient, cleanBannersForClient, cleanOffersForClient, cleanRegistrationsForClient
 } from '../utils';
 import { 
   syncAllToFirebase, 
@@ -358,8 +359,17 @@ export default function AdminLayout() {
   };
 
   // Helper: sync current local data to Firebase Realtime Database
+  // NOTE: Only syncs when in offline/fallback mode. When the live server API
+  // is reachable, the server automatically backs up the raw Base64 database
+  // to Firebase on every write. Syncing from client would overwrite Firebase
+  // with cleaned URL paths, destroying the self-healing Base64 data.
   const syncToFirebase = async () => {
     try {
+      // Skip syncing when live server is reachable — server handles raw backup automatically
+      if (!getLocalFallbackStatus()) {
+        console.log('[Admin] Server online — skipping client Firebase sync (server handles it)');
+        return;
+      }
       const data = await loadData();
       if (!data) return;
       await syncAllToFirebase({
@@ -373,7 +383,7 @@ export default function AdminLayout() {
         users: data.regs,
         registrations: data.regs
       });
-      console.log('[Admin] Firebase synced successfully');
+      console.log('[Admin] Firebase synced successfully (offline mode)');
     } catch (err) {
       console.warn('[Admin] Firebase sync failed (non-critical):', err.message);
     }
@@ -389,12 +399,15 @@ export default function AdminLayout() {
     }
 
     // Subscribe to all Firebase data tables in real-time
+    // Data coming from Firebase may contain raw Base64 strings — clean them before
+    // setting state or saving to localStorage to avoid quota errors and broken URLs.
     const unsubProducts = subscribeToProducts((data) => {
       if (data && data.length > 0) {
-        setProducts(data);
+        const clean = cleanProductsForClient(data);
+        setProducts(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.products = data;
+          db.products = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       }
@@ -402,10 +415,11 @@ export default function AdminLayout() {
 
     const unsubCategories = subscribeToCategories((data) => {
       if (data && data.length > 0) {
-        setCategories(data);
+        const clean = cleanCategoriesForClient(data);
+        setCategories(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.categories = data;
+          db.categories = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       }
@@ -413,10 +427,11 @@ export default function AdminLayout() {
 
     const unsubOffers = subscribeToOffers((data) => {
       if (data) {
-        setOffers(data);
+        const clean = cleanOffersForClient(data);
+        setOffers(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.offers = data;
+          db.offers = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       }
@@ -424,10 +439,11 @@ export default function AdminLayout() {
 
     const unsubBanners = subscribeToBanners((data) => {
       if (data) {
-        setBanners(data);
+        const clean = cleanBannersForClient(data);
+        setBanners(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.banners = data;
+          db.banners = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       }
@@ -435,10 +451,11 @@ export default function AdminLayout() {
 
     const unsubBranding = subscribeToBranding((data) => {
       if (data) {
-        setBranding(data);
+        const clean = cleanBrandingForClient(data);
+        setBranding(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.branding = data;
+          db.branding = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       }
@@ -458,10 +475,11 @@ export default function AdminLayout() {
 
     const unsubRegs = subscribeToRegistrations((data) => {
       if (data && data.length > 0) {
-        setRegistrations(data);
+        const clean = cleanRegistrationsForClient(data);
+        setRegistrations(clean);
         try {
           const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
-          db.registrations = data;
+          db.registrations = clean;
           localStorage.setItem('riomedica_db', JSON.stringify(db));
         } catch (_) {}
       }
