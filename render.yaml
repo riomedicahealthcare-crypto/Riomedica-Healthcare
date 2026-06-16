@@ -4,6 +4,3 @@ services:
     env: node
     buildCommand: npm install --prefix server
     startCommand: node server/server.js
-    envVars:
-      - key: PORT
-        value: 5000
