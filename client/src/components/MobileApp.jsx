@@ -2989,11 +2989,7 @@ export default function MobileApp() {
                   </div>
                 )}
  
-                {mockSmsHint && (
-                  <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px dashed #f59e0b', borderRadius: '8px', padding: '10px', fontSize: '0.75rem', color: '#fbbf24', lineHeight: '1.4' }}>
-                    📧 SMTP/API not configured — Code: <span style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '0.9rem', fontWeight: 700 }}>{mockSmsHint}</span>
-                  </div>
-                )}
+
  
  
                 <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
@@ -8136,13 +8132,7 @@ export default function MobileApp() {
                 <strong style={{ color: '#10b981' }}>{pendingMrData?.email}</strong><br/>
                 Ask the MR to share the code to complete registration.
               </p>
-              {mrOtpHint && (
-                <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '8px 12px' }}>
-                  <p style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 700, margin: 0 }}>
-                    📧 SMTP not configured — Code: <span style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>{mrOtpHint}</span>
-                  </p>
-                </div>
-              )}
+
             </div>
             <form onSubmit={handleVerifyMrOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="auth-input-container">
