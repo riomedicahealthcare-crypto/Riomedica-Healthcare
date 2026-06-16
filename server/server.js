@@ -379,6 +379,31 @@ app.put('/api/products/:id', requireAdminAuth, productUploads, (req, res) => {
   res.json(updatedProduct);
 });
 
+app.post('/api/products/bulk-update', requireAdminAuth, (req, res) => {
+  const { products } = req.body;
+  if (!Array.isArray(products)) {
+    return res.status(400).json({ error: 'Products array is required' });
+  }
+
+  const db = readDb();
+  let updatedCount = 0;
+
+  db.products = db.products.map(p => {
+    const matched = products.find(u => u.id === p.id);
+    if (matched) {
+      updatedCount++;
+      return {
+        ...p,
+        ...matched
+      };
+    }
+    return p;
+  });
+
+  writeDb(db);
+  res.json({ message: `Successfully updated ${updatedCount} products.`, count: updatedCount });
+});
+
 app.delete('/api/products/:id', requireAdminAuth, (req, res) => {
   const db = readDb();
   const productIndex = db.products.findIndex(p => p.id === req.params.id);

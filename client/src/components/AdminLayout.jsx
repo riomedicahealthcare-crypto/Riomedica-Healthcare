@@ -7,7 +7,7 @@ import {
   updateProduct, deleteProduct, resetProducts, addCategory, deleteCategory, 
   getOffers, addOffer, deleteOffer, getRegistrations, approveRegistration,
   denyRegistration, IMAGE_BASE, getImgUrl, getLocalFallbackStatus, getBranding, updateBranding,
-  getBanners, addBanner, deleteBanner, bulkImportProducts, getSettings, updateSettings,
+  getBanners, addBanner, deleteBanner, bulkImportProducts, bulkUpdateProducts, getSettings, updateSettings,
   getOrders, updateOrderStatus, deleteOrder,
   loginUser, sendGmailOtp,
   verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword, getAdminSecurityStatus
@@ -266,6 +266,16 @@ export default function AdminLayout() {
   const [importResult, setImportResult] = useState(null);
   const [excelDragging, setExcelDragging] = useState(false);
   const excelFileRef = useRef(null);
+
+  // Bulk Packshot Auto-Matcher States
+  const [showPackshotMatcher, setShowPackshotMatcher] = useState(false);
+  const [matchedPackshots, setMatchedPackshots] = useState([]);
+  const [unmatchedPackshots, setUnmatchedPackshots] = useState([]);
+  const [packshotsToUpdate, setPackshotsToUpdate] = useState([]);
+  const [isProcessingPackshots, setIsProcessingPackshots] = useState(false);
+  const [packshotMatcherDragging, setPackshotMatcherDragging] = useState(false);
+  const [packshotMatcherMessage, setPackshotMatcherMessage] = useState(null);
+  const packshotFilesRef = useRef(null);
 
   // Load database
   const loadData = async () => {
@@ -1512,6 +1522,123 @@ export default function AdminLayout() {
   };
 
 
+  // ── Packshot Auto-Matcher Handlers ──
+
+  const handlePackshotFilesChange = async (files) => {
+    if (!files || files.length === 0) return;
+    setIsProcessingPackshots(true);
+    setPackshotMatcherMessage(null);
+
+    const matched = [];
+    const unmatched = [];
+    const updates = [];
+
+    const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const dotIndex = file.name.lastIndexOf('.');
+      const fileNameWithoutExt = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
+      const normFileName = normalize(fileNameWithoutExt);
+
+      if (normFileName.length < 3) {
+        unmatched.push({ filename: file.name, reason: 'Filename too short (min 3 chars)' });
+        continue;
+      }
+
+      // Check for matching product in state
+      let match = null;
+      for (const p of products) {
+        const normProdName = normalize(p.name);
+        // Direct or substring matching
+        if (normProdName === normFileName || normProdName.includes(normFileName) || normFileName.includes(normProdName)) {
+          match = p;
+          break;
+        }
+      }
+
+      if (match) {
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = (err) => reject(err);
+            reader.readAsDataURL(file);
+          });
+          matched.push({
+            filename: file.name,
+            productName: match.name,
+            productId: match.id,
+            preview: dataUrl
+          });
+          updates.push({
+            id: match.id,
+            packshot: dataUrl
+          });
+        } catch (err) {
+          unmatched.push({ filename: file.name, reason: 'Error reading image file' });
+        }
+      } else {
+        unmatched.push({ filename: file.name, reason: 'No product matching this brand name' });
+      }
+    }
+
+    setMatchedPackshots(matched);
+    setUnmatchedPackshots(unmatched);
+    setPackshotsToUpdate(updates);
+    setIsProcessingPackshots(false);
+  };
+
+  const handleSavePackshots = async () => {
+    if (packshotsToUpdate.length === 0) return;
+    setIsProcessingPackshots(true);
+    setPackshotMatcherMessage(null);
+    try {
+      const response = await bulkUpdateProducts(packshotsToUpdate);
+      
+      const updatedList = products.map(p => {
+        const update = packshotsToUpdate.find(u => u.id === p.id);
+        return update ? { ...p, packshot: update.packshot } : p;
+      });
+      setProducts(updatedList);
+
+      try {
+        const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+        db.products = updatedList;
+        localStorage.setItem('riomedica_db', JSON.stringify(db));
+      } catch (err) {}
+
+      await syncToFirebase();
+
+      setPackshotMatcherMessage({
+        success: true,
+        text: `Successfully matched and saved ${response.count} packshot images to products database!`
+      });
+
+      setMatchedPackshots([]);
+      setUnmatchedPackshots([]);
+      setPackshotsToUpdate([]);
+      if (packshotFilesRef.current) packshotFilesRef.current.value = '';
+    } catch (err) {
+      setPackshotMatcherMessage({
+        success: false,
+        text: `Error saving packshots: ${err.message}`
+      });
+    } finally {
+      setIsProcessingPackshots(false);
+    }
+  };
+
+  const resetPackshotMatcher = () => {
+    setMatchedPackshots([]);
+    setUnmatchedPackshots([]);
+    setPackshotsToUpdate([]);
+    setIsProcessingPackshots(false);
+    setPackshotMatcherMessage(null);
+    if (packshotFilesRef.current) packshotFilesRef.current.value = '';
+  };
+
+
   if (!isAdminLoggedIn) {
     const inputStyle = {
       width: '100%', padding: '13px 16px 13px 44px', background: 'rgba(30, 41, 59, 0.5)',
@@ -1953,6 +2080,13 @@ export default function AdminLayout() {
                 </button>
                 <button
                   className="btn-admin-secondary"
+                  onClick={() => { setShowPackshotMatcher(v => !v); resetPackshotMatcher(); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', background: showPackshotMatcher ? 'rgba(16,185,129,0.15)' : '', borderColor: showPackshotMatcher ? '#10b981' : '' }}
+                >
+                  <Icons.Images size={16} /> {showPackshotMatcher ? 'Hide Matcher' : 'Auto-Match Packshots'}
+                </button>
+                <button
+                  className="btn-admin-secondary"
                   onClick={handleResetCatalog}
                   style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}
                   title="Clear all products from the catalog"
@@ -2249,6 +2383,171 @@ export default function AdminLayout() {
                     {isImporting
                       ? <><Icons.Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Importing...</>
                       : <><Icons.Upload size={16} /> Import {excelPreviewRows.length > 0 ? `${excelPreviewRows.length}+ Products` : 'Products'}</>
+                    }
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Bulk Packshot Auto-Matcher Panel ── */}
+            {showPackshotMatcher && (
+              <div style={{
+                background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+                border: '2px solid #10b981',
+                borderRadius: '16px',
+                padding: '24px',
+                marginBottom: '24px',
+                boxShadow: '0 4px 20px rgba(16,185,129,0.1)'
+              }}>
+                {/* Panel Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>
+                      <Icons.Images size={22} color="#fff" />
+                    </div>
+                    <div>
+                      <h3 style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a' }}>Bulk Packshot Auto-Matcher</h3>
+                      <p style={{ fontSize: '0.8rem', color: '#475569' }}>Upload multiple brand images together. We will auto-match them with products by their names!</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowPackshotMatcher(false); resetPackshotMatcher(); }} style={{ color: '#94a3b8', padding: '4px', cursor: 'pointer', background: 'none', border: 'none' }}>
+                    <Icons.X size={20} />
+                  </button>
+                </div>
+
+                {/* Dropzone File Picker */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setPackshotMatcherDragging(true); }}
+                  onDragLeave={() => setPackshotMatcherDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setPackshotMatcherDragging(false);
+                    if (e.dataTransfer.files) handlePackshotFilesChange(e.dataTransfer.files);
+                  }}
+                  onClick={() => packshotFilesRef.current && packshotFilesRef.current.click()}
+                  style={{
+                    border: `2px dashed ${packshotMatcherDragging ? '#10b981' : '#bbf7d0'}`,
+                    background: packshotMatcherDragging ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.7)',
+                    borderRadius: '12px',
+                    padding: '36px 20px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    marginBottom: '20px'
+                  }}
+                >
+                  <input
+                    type="file"
+                    ref={packshotFilesRef}
+                    multiple
+                    accept="image/*"
+                    onChange={(e) => handlePackshotFilesChange(e.target.files)}
+                    style={{ display: 'none' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+                    <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                      <Icons.UploadCloud size={26} />
+                    </div>
+                  </div>
+                  <p style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem', marginBottom: '4px' }}>
+                    Drag & drop your product images here, or <span style={{ color: '#059669', textDecoration: 'underline' }}>browse files</span>
+                  </p>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b' }}>Select multiple files. Images will be matched instantly in your browser.</p>
+                </div>
+
+                {/* Processing State */}
+                {isProcessingPackshots && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', fontSize: '0.85rem', fontWeight: 700, marginBottom: '16px' }}>
+                    <Icons.Loader size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                    Analyzing image filenames and matching with products...
+                  </div>
+                )}
+
+                {/* Results Panel */}
+                {(matchedPackshots.length > 0 || unmatchedPackshots.length > 0) && (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '20px', maxHeight: '300px', overflowY: 'auto' }}>
+                    <h4 style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b', marginBottom: '12px' }}>
+                      Match Summary: {matchedPackshots.length} matched, {unmatchedPackshots.length} unmatched
+                    </h4>
+
+                    {/* Matched List */}
+                    {matchedPackshots.length > 0 && (
+                      <div style={{ marginBottom: '16px' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                          ✅ Matched & Ready to Save ({matchedPackshots.length})
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {matchedPackshots.map((item, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', justify: 'space-between', padding: '8px 12px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <img src={item.preview} alt="preview" style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #86efac' }} />
+                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#14532d' }}>{item.filename}</span>
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 700 }}>
+                                matches ➡️ <span style={{ textDecoration: 'underline' }}>{item.productName}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Unmatched List */}
+                    {unmatchedPackshots.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                          ⚠️ Unmatched Files ({unmatchedPackshots.length})
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {unmatchedPackshots.map((item, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', justify: 'space-between', padding: '8px 12px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7f1d1d' }}>{item.filename}</span>
+                              <span style={{ fontSize: '0.72rem', color: '#991b1b', fontWeight: 600 }}>{item.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Status Message */}
+                {packshotMatcherMessage && (
+                  <div style={{
+                    padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem', fontWeight: 700,
+                    background: packshotMatcherMessage.success ? '#ecfdf5' : '#fef2f2',
+                    color: packshotMatcherMessage.success ? '#065f46' : '#991b1b',
+                    border: `1px solid ${packshotMatcherMessage.success ? '#a7f3d0' : '#fecaca'}`,
+                    display: 'flex', alignItems: 'center', gap: '8px'
+                  }}>
+                    {packshotMatcherMessage.success ? <Icons.CheckCircle size={16} /> : <Icons.XCircle size={16} />}
+                    {packshotMatcherMessage.text}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={resetPackshotMatcher}
+                    style={{ padding: '10px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Icons.RotateCcw size={15} /> Reset
+                  </button>
+                  <button
+                    onClick={handleSavePackshots}
+                    disabled={packshotsToUpdate.length === 0 || isProcessingPackshots}
+                    style={{
+                      padding: '10px 22px', borderRadius: '10px',
+                      background: (packshotsToUpdate.length === 0 || isProcessingPackshots) ? '#cbd5e1' : 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#fff', fontWeight: 800, fontSize: '0.88rem',
+                      cursor: (packshotsToUpdate.length === 0 || isProcessingPackshots) ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      boxShadow: (packshotsToUpdate.length === 0 || isProcessingPackshots) ? 'none' : '0 4px 12px rgba(16,185,129,0.3)'
+                    }}
+                  >
+                    {isProcessingPackshots
+                      ? <><Icons.Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing...</>
+                      : <><Icons.Check size={16} /> Auto-Assemble & Save ({packshotsToUpdate.length} matched)</>
                     }
                   </button>
                 </div>

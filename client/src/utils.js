@@ -1380,6 +1380,11 @@ export const updateProduct = (id, formData) => safeFetch(`${API_BASE}/products/$
   method: 'PUT',
   body: formData
 });
+export const bulkUpdateProducts = (products) => safeFetch(`${API_BASE}/products/bulk-update`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ products })
+});
 export const deleteProduct = (id) => safeFetch(`${API_BASE}/products/${id}`, {
   method: 'DELETE'
 });
