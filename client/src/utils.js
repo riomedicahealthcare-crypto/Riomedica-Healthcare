@@ -372,13 +372,17 @@ async function safeFetch(url, options = {}) {
     const res = await fetch(url, options);
     
     if (res.status === 401) {
-      // Session unauthorized/expired: clear and reload page to trigger login gate
-      sessionStorage.removeItem('adminSessionToken');
-      sessionStorage.removeItem('adminLoggedIn');
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
-      throw new Error('Session expired or unauthorized. Please login again.');
+      // Only reload if this was an admin-authenticated request (session expired)
+      // Regular user 401s (wrong password etc.) should NOT reload the page
+      if (adminToken) {
+        sessionStorage.removeItem('adminSessionToken');
+        sessionStorage.removeItem('adminLoggedIn');
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      }
+      const errorBody = await res.json().catch(() => ({}));
+      throw new Error(errorBody.error || 'Session expired or unauthorized. Please login again.');
     }
     
     if (!res.ok) {
