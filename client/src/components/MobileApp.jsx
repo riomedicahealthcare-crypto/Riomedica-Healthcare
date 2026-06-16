@@ -5660,6 +5660,12 @@ export default function MobileApp() {
                         src={getImgUrl(selectedProduct.packshot)} 
                         alt={selectedProduct.name} 
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        onError={(e) => {
+                          const fallback = `${IMAGE_BASE}/api/image/packshot/${selectedProduct.id}`;
+                          if (e.target.src !== fallback) {
+                            e.target.src = fallback;
+                          }
+                        }}
                       />
                     ) : (
                       <div style={{ textAlign: 'center', padding: '20px' }}>
@@ -7320,6 +7326,12 @@ export default function MobileApp() {
                     objectFit: 'contain', position: 'relative', zIndex: 1,
                     filter: 'drop-shadow(0 10px 30px rgba(16,185,129,0.4))',
                     animation: 'popIn 0.7s cubic-bezier(0.34,1.56,0.64,1) 0.2s both'
+                  }}
+                  onError={(e) => {
+                    const fallback = `${IMAGE_BASE}/api/image/packshot/${launchPopupProduct.id}`;
+                    if (e.target.src !== fallback) {
+                      e.target.src = fallback;
+                    }
                   }}
                 />
               ) : (

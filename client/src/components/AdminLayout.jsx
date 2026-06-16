@@ -4111,6 +4111,12 @@ export default function AdminLayout() {
                           src={getImgUrl(editingProduct.packshot)} 
                           alt="existing-pack" 
                           style={{ width: '40px', height: '40px', objectFit: 'contain', border: '1px solid #ddd', borderRadius: '4px' }}
+                          onError={(e) => {
+                            const fallback = `${IMAGE_BASE}/api/image/packshot/${editingProduct.id}`;
+                            if (e.target.src !== fallback) {
+                              e.target.src = fallback;
+                            }
+                          }}
                         />
                       </div>
                     )}
