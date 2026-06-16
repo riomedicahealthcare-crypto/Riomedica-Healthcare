@@ -236,6 +236,9 @@ export default function AdminLayout() {
   const [otpChannel, setOtpChannel] = useState('mock');
   const [smtpEmail, setSmtpEmail] = useState('');
   const [smtpPassword, setSmtpPassword] = useState('');
+  const [gmailApiUrl, setGmailApiUrl] = useState('');
+  const [brevoApiKey, setBrevoApiKey] = useState('');
+  const [brevoSenderEmail, setBrevoSenderEmail] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Admin AI Assistant Test Chat States
@@ -289,6 +292,9 @@ export default function AdminLayout() {
         let currentOtpChannel = settings.otpChannel || 'mock';
         let currentSmtpEmail = settings.smtpEmail || '';
         let currentSmtpPassword = settings.smtpPassword || '';
+        let currentGmailApiUrl = settings.gmailApiUrl || '';
+        let currentBrevoApiKey = settings.brevoApiKey || '';
+        let currentBrevoSenderEmail = settings.brevoSenderEmail || '';
 
         // If server settings are empty, check client LocalStorage fallback!
         if (!currentSmtpEmail || !currentSmtpPassword) {
@@ -300,6 +306,9 @@ export default function AdminLayout() {
               currentOtpChannel = localSettings.otpChannel || currentOtpChannel;
               currentSmtpEmail = localSettings.smtpEmail;
               currentSmtpPassword = localSettings.smtpPassword;
+              currentGmailApiUrl = localSettings.gmailApiUrl || currentGmailApiUrl;
+              currentBrevoApiKey = localSettings.brevoApiKey || currentBrevoApiKey;
+              currentBrevoSenderEmail = localSettings.brevoSenderEmail || currentBrevoSenderEmail;
               
               // Proactively save these back to the server now that connection is active!
               console.log("[Admin] Syncing LocalStorage SMTP settings to server...");
@@ -307,7 +316,10 @@ export default function AdminLayout() {
                 geminiApiKey: currentApiKey,
                 otpChannel: currentOtpChannel,
                 smtpEmail: currentSmtpEmail,
-                smtpPassword: currentSmtpPassword
+                smtpPassword: currentSmtpPassword,
+                gmailApiUrl: currentGmailApiUrl,
+                brevoApiKey: currentBrevoApiKey,
+                brevoSenderEmail: currentBrevoSenderEmail
               }).catch(e => console.warn("Failed to auto-sync settings to server:", e));
             }
           } catch (e) {
@@ -319,6 +331,9 @@ export default function AdminLayout() {
         setOtpChannel(currentOtpChannel);
         setSmtpEmail(currentSmtpEmail);
         setSmtpPassword(currentSmtpPassword);
+        setGmailApiUrl(currentGmailApiUrl);
+        setBrevoApiKey(currentBrevoApiKey);
+        setBrevoSenderEmail(currentBrevoSenderEmail);
         setIsSettingsInitialized(true);
       }
       setOrders((ords || []).filter(o => o.createdByRole !== 'mr'));
@@ -703,7 +718,7 @@ export default function AdminLayout() {
     try {
       // Try updating server settings directly
       try {
-        await updateSettings({ geminiApiKey, otpChannel, smtpEmail, smtpPassword });
+        await updateSettings({ geminiApiKey, otpChannel, smtpEmail, smtpPassword, gmailApiUrl, brevoApiKey, brevoSenderEmail });
       } catch (serverErr) {
         console.warn("Could not save settings directly to server:", serverErr);
       }
@@ -716,6 +731,9 @@ export default function AdminLayout() {
         localDb.settings.otpChannel = otpChannel;
         localDb.settings.smtpEmail = smtpEmail;
         localDb.settings.smtpPassword = smtpPassword;
+        localDb.settings.gmailApiUrl = gmailApiUrl;
+        localDb.settings.brevoApiKey = brevoApiKey;
+        localDb.settings.brevoSenderEmail = brevoSenderEmail;
         localStorage.setItem('riomedica_db', JSON.stringify(localDb));
       } catch (err) {
         console.error("Failed to write settings to localStorage", err);
@@ -2936,14 +2954,16 @@ export default function AdminLayout() {
                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <Icons.Mail size={16} color="#10b981" /> OTP Delivery Channel
                     </label>
-                    <select
+                    <select 
                       className="form-control"
                       value={otpChannel}
                       onChange={(e) => setOtpChannel(e.target.value)}
                       style={{ marginTop: '8px' }}
                     >
                       <option value="mock">Simulated OTP (On-Screen Mock Alert)</option>
-                      <option value="smtp">Gmail SMTP Email Gateway (Real-Time)</option>
+                      <option value="smtp">Gmail SMTP Relay (Requires Local Server Running)</option>
+                      <option value="gmailApi">Google Apps Script Web App (Gmail 24/7 Cloud)</option>
+                      <option value="brevo">Brevo Transactional HTTP API (SMTP 24/7 Cloud)</option>
                     </select>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>
                       Choose how OTP codes are delivered for firm registration and user log-in.
@@ -2973,6 +2993,55 @@ export default function AdminLayout() {
                         />
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>
                           Create a 16-character Google App Password in your Google Account Security settings.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {otpChannel === 'gmailApi' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--border-admin)' }}>
+                      <div className="form-group">
+                        <label>Google Apps Script Web App URL</label>
+                        <input 
+                          type="url" 
+                          className="form-control"
+                          placeholder="https://script.google.com/macros/s/.../exec" 
+                          value={gmailApiUrl}
+                          onChange={(e) => setGmailApiUrl(e.target.value)}
+                          required
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>
+                          Enter the deployed Apps Script Web App URL from your Google account to send real-time Gmail OTPs 24/7.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {otpChannel === 'brevo' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--border-admin)' }}>
+                      <div className="form-group">
+                        <label>Brevo API Key (v3)</label>
+                        <input 
+                          type="password" 
+                          className="form-control"
+                          placeholder="xkeysib-..." 
+                          value={brevoApiKey}
+                          onChange={(e) => setBrevoApiKey(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Verified Sender Email</label>
+                        <input 
+                          type="email" 
+                          className="form-control"
+                          placeholder="e.g. riomedicahealthcare@gmail.com" 
+                          value={brevoSenderEmail}
+                          onChange={(e) => setBrevoSenderEmail(e.target.value)}
+                          required
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-admin-muted)', display: 'block', marginTop: '4px' }}>
+                          Must be verified as an active Sender email address in your Brevo account dashboard.
                         </span>
                       </div>
                     </div>

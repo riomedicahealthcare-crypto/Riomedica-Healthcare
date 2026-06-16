@@ -959,41 +959,25 @@ const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 const sendOtpMail = async (toEmail, otp, type) => {
   const db = readDb();
   const settings = db.settings || {};
-  const isSmtp = settings.otpChannel === 'smtp' && settings.smtpEmail && settings.smtpPassword;
+  const channel = settings.otpChannel || 'mock';
+  const purpose = (type === 'register' || type === 'registration') ? 'Registration' : 'Sign In';
 
   console.log(`\n--- [GMAIL OTP GATEWAY] ---`);
   console.log(`To Email: ${toEmail}`);
-  console.log(`Purpose: ${(type === 'register' || type === 'registration') ? 'Registration' : 'Sign In'}`);
+  console.log(`Purpose: ${purpose}`);
   console.log(`Verification Code: ${otp}`);
-  console.log(`Mode: ${isSmtp ? 'Gmail SMTP Relay (Real-Time)' : 'Simulated (Mock On-Screen Alert)'}`);
+  console.log(`Mode: ${channel.toUpperCase()}`);
   console.log(`---------------------------\n`);
 
-  if (!isSmtp) {
-    return { success: true, mock: true };
-  }
-
-  try {
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // STARTTLS
-      auth: {
-        user: settings.smtpEmail,
-        pass: settings.smtpPassword
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 4000,
-      greetingTimeout: 4000,
-      socketTimeout: 4000
-    });
-
-    const mailOptions = {
-      from: `"Riomedica Healthcare" <${settings.smtpEmail}>`,
-      to: toEmail,
-      subject: `Riomedica Verification Code: ${otp}`,
-      html: `
+  // 1. Google Apps Script Web App (Gmail API)
+  if (channel === 'gmailApi') {
+    if (!settings.gmailApiUrl) {
+      console.error(`[GMAIL API ERROR] Google Apps Script URL not configured.`);
+      return { success: false, mock: true, error: 'Google Apps Script URL not configured' };
+    }
+    try {
+      const emailBody = `Please use the following 6-digit security code to verify your account for ${purpose}. This code is valid for 5 minutes.\n\nCode: ${otp}\n\nThis is an automated message from Riomedica Healthcare.`;
+      const emailHtml = `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
           <div style="text-align: center; margin-bottom: 24px;">
             <h2 style="color: #10b981; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">RIOMEDICA HEALTHCARE</h2>
@@ -1001,7 +985,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
           </div>
           <div style="font-size: 15px; color: #334155; line-height: 1.6; margin-bottom: 24px;">
             <p style="margin-top: 0;">Hello,</p>
-            <p>Please use the following 6-digit security code to verify your account for <strong>${(type === 'register' || type === 'registration') ? 'Registration' : 'Sign In'}</strong>. This code is valid for 5 minutes.</p>
+            <p>Please use the following 6-digit security code to verify your account for <strong>${purpose}</strong>. This code is valid for 5 minutes.</p>
             <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
               <span style="font-family: monospace; font-size: 36px; font-weight: 800; color: #0f172a; letter-spacing: 6px; display: inline-block;">${otp}</span>
             </div>
@@ -1013,15 +997,158 @@ const sendOtpMail = async (toEmail, otp, type) => {
             <p style="margin: 4px 0 0 0;">All Rights Reserved.</p>
           </div>
         </div>
-      `
-    };
+      `;
 
-    await transporter.sendMail(mailOptions);
-    return { success: true, mock: false };
-  } catch (err) {
-    console.error(`[SMTP ERROR] Failed to send Gmail OTP email to ${toEmail}:`, err.message);
-    return { success: false, mock: true, error: err.message };
+      const response = await fetch(settings.gmailApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toEmail,
+          subject: `Riomedica Verification Code: ${otp}`,
+          body: emailBody,
+          htmlBody: emailHtml
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const resJson = await response.json();
+      console.log(`[GMAIL API SUCCESS] Apps Script response:`, resJson);
+      return { success: true, mock: false };
+    } catch (err) {
+      console.error(`[GMAIL API ERROR] Failed to send Gmail OTP email to ${toEmail}:`, err.message);
+      return { success: false, mock: false, error: err.message };
+    }
   }
+
+  // 2. Brevo Transactional REST API
+  if (channel === 'brevo') {
+    if (!settings.brevoApiKey || !settings.brevoSenderEmail) {
+      console.error(`[BREVO API ERROR] Brevo API Key or Sender Email not configured.`);
+      return { success: false, mock: true, error: 'Brevo API configuration incomplete' };
+    }
+    try {
+      const emailHtml = `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h2 style="color: #10b981; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">RIOMEDICA HEALTHCARE</h2>
+            <span style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Secure Verification Service</span>
+          </div>
+          <div style="font-size: 15px; color: #334155; line-height: 1.6; margin-bottom: 24px;">
+            <p style="margin-top: 0;">Hello,</p>
+            <p>Please use the following 6-digit security code to verify your account for <strong>${purpose}</strong>. This code is valid for 5 minutes.</p>
+            <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
+              <span style="font-family: monospace; font-size: 36px; font-weight: 800; color: #0f172a; letter-spacing: 6px; display: inline-block;">${otp}</span>
+            </div>
+            <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">If you did not request this verification code, please ignore this email or contact support.</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+          <div style="text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.4;">
+            <p style="margin: 0;">&copy; 2026 Riomedica Healthcare Private Limited.</p>
+            <p style="margin: 4px 0 0 0;">All Rights Reserved.</p>
+          </div>
+        </div>
+      `;
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'api-key': settings.brevoApiKey,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: {
+            name: "Riomedica Healthcare",
+            email: settings.brevoSenderEmail
+          },
+          to: [
+            {
+              email: toEmail,
+              name: "Recipient"
+            }
+          ],
+          subject: `Riomedica Verification Code: ${otp}`,
+          htmlContent: emailHtml
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Brevo HTTP ${response.status}: ${errText}`);
+      }
+
+      console.log(`[BREVO API SUCCESS] Email sent to ${toEmail}`);
+      return { success: true, mock: false };
+    } catch (err) {
+      console.error(`[BREVO API ERROR] Failed to send Brevo OTP email to ${toEmail}:`, err.message);
+      return { success: false, mock: false, error: err.message };
+    }
+  }
+
+  // 3. Gmail SMTP Relay
+  if (channel === 'smtp') {
+    if (!settings.smtpEmail || !settings.smtpPassword) {
+      console.warn(`[SMTP WARN] SMTP email/password not configured. Mocking OTP.`);
+      return { success: true, mock: true };
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false, // STARTTLS
+        auth: {
+          user: settings.smtpEmail,
+          pass: settings.smtpPassword
+        },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 4000,
+        greetingTimeout: 4000,
+        socketTimeout: 4000
+      });
+
+      const mailOptions = {
+        from: `"Riomedica Healthcare" <${settings.smtpEmail}>`,
+        to: toEmail,
+        subject: `Riomedica Verification Code: ${otp}`,
+        html: `
+          <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <h2 style="color: #10b981; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">RIOMEDICA HEALTHCARE</h2>
+              <span style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Secure Verification Service</span>
+            </div>
+            <div style="font-size: 15px; color: #334155; line-height: 1.6; margin-bottom: 24px;">
+              <p style="margin-top: 0;">Hello,</p>
+              <p>Please use the following 6-digit security code to verify your account for <strong>${purpose}</strong>. This code is valid for 5 minutes.</p>
+              <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
+                <span style="font-family: monospace; font-size: 36px; font-weight: 800; color: #0f172a; letter-spacing: 6px; display: inline-block;">${otp}</span>
+              </div>
+              <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">If you did not request this verification code, please ignore this email or contact support.</p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+            <div style="text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.4;">
+              <p style="margin: 0;">&copy; 2026 Riomedica Healthcare Private Limited.</p>
+              <p style="margin: 4px 0 0 0;">All Rights Reserved.</p>
+            </div>
+          </div>
+        `
+      };
+
+      await transporter.sendMail(mailOptions);
+      return { success: true, mock: false };
+    } catch (err) {
+      console.error(`[SMTP ERROR] Failed to send Gmail OTP email to ${toEmail}:`, err.message);
+      return { success: false, mock: true, error: err.message };
+    }
+  }
+
+  // Fallback
+  return { success: true, mock: true };
 };
 
 // ─── FIREBASE REALTIME DATABASE OTP LISTENER ─────────────────────────────────
@@ -1039,15 +1166,23 @@ const firebaseApp = initializeApp(firebaseConfig);
 const firebaseDb = getDatabase(firebaseApp);
 
 const startFirebaseOtpListener = () => {
-  if (process.env.RENDER === 'true') {
-    console.log("[Firebase Server] Running on Render - Disabling Firebase RTDB OTP listener to let local servers process emails.");
-    return;
-  }
   const activeOtpsRef = ref(firebaseDb, 'active_otps');
   console.log("[Firebase Server] Listening for active OTP requests on Firebase RTDB...");
   
   onValue(activeOtpsRef, async (snapshot) => {
     if (!snapshot.exists()) return;
+
+    // Load active settings dynamically
+    const db = readDb();
+    const settings = db.settings || {};
+    const channel = settings.otpChannel || 'mock';
+
+    // If running on Render and channel is SMTP or Mock, we ignore it here
+    // to let local listeners process it.
+    if (process.env.RENDER === 'true' && (channel === 'smtp' || channel === 'mock')) {
+      return;
+    }
+
     const data = snapshot.val();
     
     // Process email OTPs
@@ -1344,17 +1479,36 @@ app.post('/api/branding', requireAdminAuth, brandingUpload, (req, res) => {
 // --- SETTINGS ROUTES ---
 app.get('/api/settings', (req, res) => {
   const db = readDb();
-  res.json(db.settings || { geminiApiKey: "", otpChannel: "mock", smtpEmail: "", smtpPassword: "" });
+  res.json(db.settings || { 
+    geminiApiKey: "", 
+    otpChannel: "mock", 
+    smtpEmail: "", 
+    smtpPassword: "",
+    gmailApiUrl: "",
+    brevoApiKey: "",
+    brevoSenderEmail: ""
+  });
 });
 
 app.post('/api/settings', requireAdminAuth, (req, res) => {
-  const { geminiApiKey, otpChannel, smtpEmail, smtpPassword } = req.body;
+  const { 
+    geminiApiKey, 
+    otpChannel, 
+    smtpEmail, 
+    smtpPassword,
+    gmailApiUrl,
+    brevoApiKey,
+    brevoSenderEmail
+  } = req.body;
   const db = readDb();
   db.settings = db.settings || {};
   if (geminiApiKey !== undefined) db.settings.geminiApiKey = geminiApiKey || "";
   if (otpChannel !== undefined) db.settings.otpChannel = otpChannel || "mock";
   if (smtpEmail !== undefined) db.settings.smtpEmail = smtpEmail || "";
   if (smtpPassword !== undefined) db.settings.smtpPassword = smtpPassword || "";
+  if (gmailApiUrl !== undefined) db.settings.gmailApiUrl = gmailApiUrl || "";
+  if (brevoApiKey !== undefined) db.settings.brevoApiKey = brevoApiKey || "";
+  if (brevoSenderEmail !== undefined) db.settings.brevoSenderEmail = brevoSenderEmail || "";
   writeDb(db);
   res.json(db.settings);
 });

@@ -9839,5 +9839,12 @@
     "otpChannel": "smtp",
     "smtpEmail": "riomedicahealthcare@gmail.com",
     "smtpPassword": "wuvoaassufxtjsdg"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "",
+    "email": "Riomedicahealthcare@gmail.com",
+    "twoFactorSecret": "",
+    "twoFactorEnabled": false
   }
 }
