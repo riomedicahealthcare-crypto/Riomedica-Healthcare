@@ -290,11 +290,8 @@ const writeDb = (data) => {
     processDbImagesInPlace(data);
 
     fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
-    if (firebaseDb) {
-      set(ref(firebaseDb, '/'), data)
-        .then(() => console.log("[Firebase Sync] Server database successfully backed up to Firebase cloud"))
-        .catch(err => console.error("[Firebase Sync] Failed to back up server database to Firebase:", err.message));
-    }
+    // NOTE: Bulk Firebase root sync is disabled to protect client-side direct Base64 image uploads.
+    // Target-specific changes (orders, MRs, registrations, approvals) are synced directly at the endpoint level.
   } catch (err) {
     console.error("Error writing to database file", err);
   }
@@ -827,7 +824,24 @@ app.post('/api/registrations/:id/approve', requireAdminAuth, (req, res) => {
   db.registrations[index].status = 'approved';
   db.registrations[index].loginDetails = { username, password };
 
+  const approvedReg = db.registrations[index];
   writeDb(db);
+
+  if (firebaseDb) {
+    set(ref(firebaseDb, `registrations/${req.params.id}`), approvedReg).catch(() => {});
+    set(ref(firebaseDb, `users/${req.params.id}`), {
+      id: req.params.id,
+      username,
+      password,
+      status: 'approved',
+      firmName: approvedReg.firmName,
+      ownerName: approvedReg.ownerName,
+      mobile: approvedReg.mobile,
+      email: approvedReg.email,
+      createdAt: approvedReg.createdAt
+    }).catch(() => {});
+  }
+
   res.json(db.registrations[index]);
 });
 
@@ -843,6 +857,11 @@ app.post('/api/registrations/:id/deny', requireAdminAuth, (req, res) => {
   db.registrations[index].loginDetails = null;
 
   writeDb(db);
+
+  if (firebaseDb) {
+    set(ref(firebaseDb, `registrations/${req.params.id}`), db.registrations[index]).catch(() => {});
+  }
+
   res.json(db.registrations[index]);
 });
 
@@ -855,6 +874,8 @@ app.delete('/api/registrations/:id', requireAdminAuth, (req, res) => {
   const index = db.registrations.findIndex(r => r.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: 'Franchise Partner not found' });
 
+  const mrsToDelete = db.mrs.filter(m => m.distributorId === req.params.id);
+
   // Remove the registration
   db.registrations.splice(index, 1);
 
@@ -862,6 +883,15 @@ app.delete('/api/registrations/:id', requireAdminAuth, (req, res) => {
   db.mrs = db.mrs.filter(m => m.distributorId !== req.params.id);
 
   writeDb(db);
+
+  if (firebaseDb) {
+    remove(ref(firebaseDb, `registrations/${req.params.id}`)).catch(() => {});
+    remove(ref(firebaseDb, `users/${req.params.id}`)).catch(() => {});
+    mrsToDelete.forEach(m => {
+      remove(ref(firebaseDb, `mrs/${m.id}`)).catch(() => {});
+    });
+  }
+
   res.json({ message: 'Franchise Partner account and all associated MR profiles terminated successfully.' });
 });
 
@@ -883,6 +913,10 @@ app.post('/api/user/change-password', (req, res) => {
     if (reg.loginDetails && reg.loginDetails.password === oldPassword) {
       db.registrations[regIndex].loginDetails.password = newPassword;
       writeDb(db);
+      if (firebaseDb) {
+        update(ref(firebaseDb, `registrations/${userId}/loginDetails`), { password: newPassword }).catch(() => {});
+        update(ref(firebaseDb, `users/${userId}`), { password: newPassword }).catch(() => {});
+      }
       return res.json({ message: 'Password changed successfully.' });
     } else {
       return res.status(400).json({ error: 'Incorrect old password' });
@@ -896,6 +930,9 @@ app.post('/api/user/change-password', (req, res) => {
     if (mr.loginDetails && mr.loginDetails.password === oldPassword) {
       db.mrs[mrIndex].loginDetails.password = newPassword;
       writeDb(db);
+      if (firebaseDb) {
+        update(ref(firebaseDb, `mrs/${userId}/loginDetails`), { password: newPassword }).catch(() => {});
+      }
       return res.json({ message: 'Password changed successfully.' });
     } else {
       return res.status(400).json({ error: 'Incorrect old password' });
@@ -924,6 +961,10 @@ app.post('/api/admin/reset-password', requireAdminAuth, (req, res) => {
     }
     db.registrations[regIndex].loginDetails.password = newPassword;
     writeDb(db);
+    if (firebaseDb) {
+      update(ref(firebaseDb, `registrations/${userId}/loginDetails`), { password: newPassword }).catch(() => {});
+      update(ref(firebaseDb, `users/${userId}`), { password: newPassword }).catch(() => {});
+    }
     return res.json({ message: 'Password reset successfully.' });
   }
 
@@ -947,6 +988,9 @@ app.post('/api/mrs/reset-password', (req, res) => {
     }
     db.mrs[mrIndex].loginDetails.password = newPassword;
     writeDb(db);
+    if (firebaseDb) {
+      update(ref(firebaseDb, `mrs/${mrId}/loginDetails`), { password: newPassword }).catch(() => {});
+    }
     return res.json({ message: 'MR password reset successfully.' });
   }
 
@@ -1860,6 +1904,11 @@ app.post('/api/mrs', (req, res) => {
 
   db.mrs.push(newMr);
   writeDb(db);
+
+  if (firebaseDb) {
+    set(ref(firebaseDb, `mrs/${newMr.id}`), newMr).catch(() => {});
+  }
+
   res.status(201).json(newMr);
 });
 
@@ -1872,6 +1921,11 @@ app.delete('/api/mrs/:id', (req, res) => {
 
   db.mrs.splice(index, 1);
   writeDb(db);
+
+  if (firebaseDb) {
+    remove(ref(firebaseDb, `mrs/${req.params.id}`)).catch(() => {});
+  }
+
   res.json({ message: 'MR deleted successfully' });
 });
 
@@ -1904,6 +1958,10 @@ app.post('/api/visits', (req, res) => {
 
   db.doctorVisits.push(newVisit);
   writeDb(db);
+
+  if (firebaseDb) {
+    set(ref(firebaseDb, `doctorVisits/${newVisit.id}`), newVisit).catch(() => {});
+  }
   res.status(201).json(newVisit);
 });
 
@@ -2281,7 +2339,7 @@ app.post('/api/orders', (req, res) => {
   const db = readDb();
   if (!db.orders) db.orders = [];
   const newOrder = {
-    id: 'ord-' + Date.now(),
+    id: req.body.id || 'ord-' + Date.now(),
     firmName: req.body.firmName || 'Unknown',
     userName: req.body.userName || 'Anonymous',
     createdByRole: req.body.createdByRole,
@@ -2295,6 +2353,11 @@ app.post('/api/orders', (req, res) => {
   };
   db.orders.push(newOrder);
   writeDb(db);
+
+  if (firebaseDb) {
+    set(ref(firebaseDb, `orders/${newOrder.id}`), newOrder).catch(() => {});
+  }
+
   res.json({ success: true, order: newOrder });
 });
 
@@ -2310,6 +2373,11 @@ app.put('/api/orders/:id/status', requireAdminAuth, (req, res) => {
   if (orderIndex !== -1) {
     db.orders[orderIndex].status = req.body.status || 'Pending';
     writeDb(db);
+
+    if (firebaseDb) {
+      update(ref(firebaseDb, `orders/${req.params.id}`), { status: req.body.status || 'Pending' }).catch(() => {});
+    }
+
     return res.json({ success: true, order: db.orders[orderIndex] });
   }
   res.status(404).json({ error: 'Order not found' });
@@ -2320,6 +2388,10 @@ app.delete('/api/orders/:id', requireAdminAuth, (req, res) => {
   if (db.orders) {
     db.orders = db.orders.filter(o => o.id !== req.params.id);
     writeDb(db);
+
+    if (firebaseDb) {
+      remove(ref(firebaseDb, `orders/${req.params.id}`)).catch(() => {});
+    }
   }
   res.json({ success: true });
 });

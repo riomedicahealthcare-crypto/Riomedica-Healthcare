@@ -3413,10 +3413,10 @@ export default function MobileApp() {
 
     try {
       // 🔥 Write to Firebase first (primary store)
-      await fbAddOrder(orderPayload);
+      const fbKey = await fbAddOrder(orderPayload);
 
       // Also try local server (non-blocking)
-      addOrder(orderPayload).catch(() => {});
+      addOrder({ ...orderPayload, id: fbKey }).catch(() => {});
 
       alert(userRole === 'mr' ? "Order submitted to Franchise successfully!" : "Order submitted to Admin successfully!");
       clearCart();
@@ -3429,7 +3429,7 @@ export default function MobileApp() {
       console.error("Order submission error:", err);
       // Fallback to local server if Firebase fails
       try {
-        const res = await addOrder(orderPayload);
+        const res = await addOrder({ ...orderPayload, id: 'ord-' + Date.now() });
         if (res && res.success) {
           alert(userRole === 'mr' ? "Order submitted to Franchise successfully!" : "Order submitted to Admin successfully!");
           clearCart();
