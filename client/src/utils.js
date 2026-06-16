@@ -345,14 +345,31 @@ const initLocalStorage = () => {
       modified = true;
     }
     if (modified) {
-      localStorage.setItem('riomedica_db', JSON.stringify(oldDb));
+      try {
+        localStorage.setItem('riomedica_db', JSON.stringify(oldDb));
+      } catch (err) {
+        console.warn("[LocalStorage] Quota exceeded on init:", err.message);
+      }
     }
   }
 };
 initLocalStorage();
 
-const getLocalDb = () => JSON.parse(localStorage.getItem('riomedica_db'));
-const saveLocalDb = (data) => localStorage.setItem('riomedica_db', JSON.stringify(data));
+const getLocalDb = () => {
+  try {
+    return JSON.parse(localStorage.getItem('riomedica_db'));
+  } catch (err) {
+    return null;
+  }
+};
+
+const saveLocalDb = (data) => {
+  try {
+    localStorage.setItem('riomedica_db', JSON.stringify(data));
+  } catch (err) {
+    console.warn("[LocalStorage] Quota exceeded on saveLocalDb:", err.message);
+  }
+};
 
 // State fallback flag
 let isUsingLocalFallback = false;
