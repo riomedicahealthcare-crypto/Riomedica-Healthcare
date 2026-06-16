@@ -632,22 +632,8 @@ export default function AdminLayout() {
     let lbl = "";
     let categoryId = ""; // Therapeutic Category ID
 
-    // Gastro & Antacids
+    // 1. Antibiotics & Anti-infectives (Prioritized first)
     if (
-      comp.includes('pantoprazole') || comp.includes('rabeprazole') || 
-      comp.includes('omeprazole') || comp.includes('esomeprazole') || 
-      comp.includes('ranitidine') || comp.includes('domperidone') || 
-      comp.includes('sucralfate') || comp.includes('itopride') || 
-      comp.includes('levosulpiride') || comp.includes('digestive') || 
-      comp.includes('acid') || comp.includes('gastro')
-    ) {
-      categoryId = "gastro";
-      indications = "Acidity, GERD (Gastroesophageal Reflux Disease), peptic ulcers, heartburn, bloating, and dyspepsia.";
-      dosage = "1 tablet/capsule daily in the morning before breakfast (on empty stomach) or as directed by a physician.";
-      lbl = "Proton pump inhibitor (PPI) or gastroprokinetic formulation that reduces stomach acid secretion and enhances gut motility for fast, long-lasting relief from acid reflux and digestive discomfort.";
-    }
-    // Antibiotics & Anti-infectives
-    else if (
       comp.includes('cefpodoxime') || comp.includes('cefixime') || 
       comp.includes('azithromycin') || comp.includes('clarithromycin') || 
       comp.includes('amoxicillin') || comp.includes('moxifloxacin') || 
@@ -663,7 +649,18 @@ export default function AdminLayout() {
       dosage = "1 tablet once or twice daily after meals, completing the full course as prescribed by the physician.";
       lbl = "Broad-spectrum antibacterial agent that inhibits bacterial cell wall synthesis or blocks vital protein production, effectively eliminating the pathogen and preventing drug resistance.";
     }
-    // Cardiovascular & Anti-diabetic
+    // 2. Neurology & Psychotropics
+    else if (
+      comp.includes('gabapentin') || comp.includes('pregabalin') || 
+      comp.includes('piracetam') || comp.includes('citicoline') || 
+      comp.includes('levetiracetam') || comp.includes('neurology')
+    ) {
+      categoryId = "neurology";
+      indications = "Neuropathic pain, diabetic neuropathy, post-herpetic neuralgia, cognitive enhancement, and seizure control.";
+      dosage = "1 tablet/capsule daily or as directed by a neurologist, preferably at night.";
+      lbl = "Neurological regulator that modulates calcium channel activity to suppress hyper-excited neuropathic pain signals and support neural cellular metabolism.";
+    }
+    // 3. Cardiovascular & Anti-diabetic
     else if (
       comp.includes('amlodipine') || comp.includes('atenolol') || 
       comp.includes('telmisartan') || comp.includes('losartan') || 
@@ -679,7 +676,7 @@ export default function AdminLayout() {
       dosage = "1 tablet daily in the morning or evening at the same time, or as directed by the cardiologist.";
       lbl = "Cardiovascular therapeutic agent designed to selectively block calcium channels or angiotensin receptors, dilating blood vessels to optimize cardiac output and reduce vascular resistance.";
     }
-    // Multivitamins & Antioxidants / Nutritional
+    // 4. Multivitamins & Antioxidants / Nutritional
     else if (
       comp.includes('calcium') || comp.includes('vitamin') || 
       comp.includes('methylcobalamin') || comp.includes('zinc') || 
@@ -698,7 +695,7 @@ export default function AdminLayout() {
       dosage = "1 tablet/capsule daily after meals, preferably at bedtime, or as directed by a physician.";
       lbl = "Comprehensive nutritional supplement that enhances bone density, supports hemoglobin synthesis, promotes myelin sheath regeneration, and neutralizes free radicals for cellular vitality.";
     }
-    // Cough, Cold & Anti-allergic
+    // 5. Cough, Cold & Anti-allergic
     else if (
       comp.includes('montelukast') || comp.includes('levocetirizine') || 
       comp.includes('cetirizine') || comp.includes('fexofenadine') || 
@@ -713,7 +710,7 @@ export default function AdminLayout() {
       dosage = "1 tablet daily at bedtime, or 5-10ml syrup twice daily as prescribed by the physician.";
       lbl = "Synergistic antihistamine, mucolytic, and bronchodilator formulation that relaxes airway smooth muscles, thins bronchial secretions, and blocks allergic receptors for rapid relief.";
     }
-    // Dental Care & Oral Hygiene
+    // 6. Dental Care & Oral Hygiene
     else if (
       comp.includes('tooth') || comp.includes('gum') || 
       comp.includes('mouthwash') || comp.includes('dental') ||
@@ -725,7 +722,7 @@ export default function AdminLayout() {
       dosage = "Use a small amount for brushing twice daily, or rinse with 10ml of solution for 1 minute twice daily. Do not swallow.";
       lbl = "Advanced oral hygiene formulation that provides antibacterial protection, reduces bacterial load, and strengthens enamel for healthy gums and teeth.";
     }
-    // Dermatological & Topical Creams
+    // 7. Dermatological & Topical Creams
     else if (
       comp.includes('soap') || comp.includes('powder') || 
       comp.includes('cream') || comp.includes('ointment') || 
@@ -740,7 +737,7 @@ export default function AdminLayout() {
       dosage = "Apply a thin layer to the affected area 1-2 times daily, or wash affected area with soap as directed by the dermatologist.";
       lbl = "Dermatological topical agent engineered for deep skin penetration, offering robust anti-inflammatory, anti-fungal, or antibacterial action directly at the lesion site.";
     }
-    // Ophthalmic & Ear Drops
+    // 8. Ophthalmic & Ear Drops
     else if (
       comp.includes('eye drop') || comp.includes('ear drop') || 
       comp.includes('carboxymethylcellulose') || comp.includes('moxifloxacin eye') || 
@@ -753,18 +750,7 @@ export default function AdminLayout() {
       dosage = "Instill 1-2 drops in the affected eye/ear 3-4 times daily or as advised by the ophthalmologist/ENT specialist.";
       lbl = "Sterile topical drops providing immediate antimicrobial action or lubrication to soothe ocular tissues, reduce redness, and clear localized infections.";
     }
-    // Neurology & Psychotropics
-    else if (
-      comp.includes('gabapentin') || comp.includes('pregabalin') || 
-      comp.includes('piracetam') || comp.includes('citicoline') || 
-      comp.includes('levetiracetam') || comp.includes('neurology')
-    ) {
-      categoryId = "neurology";
-      indications = "Neuropathic pain, diabetic neuropathy, post-herpetic neuralgia, cognitive enhancement, and seizure control.";
-      dosage = "1 tablet/capsule daily or as directed by a neurologist, preferably at night.";
-      lbl = "Neurological regulator that modulates calcium channel activity to suppress hyper-excited neuropathic pain signals and support neural cellular metabolism.";
-    }
-    // Analgesics & Pain Management
+    // 9. Analgesics & Pain Management
     else if (
       comp.includes('aceclofenac') || comp.includes('paracetamol') || 
       comp.includes('diclofenac') || comp.includes('nimesulide') || 
@@ -779,7 +765,7 @@ export default function AdminLayout() {
       dosage = "1 tablet twice daily after meals or as directed by a physician for symptomatic pain relief.";
       lbl = "Effective NSAID and proteolytic enzyme combination that inhibits COX enzymes (reducing pain-inducing prostaglandins) and resolves tissue edema to accelerate healing and restore mobility.";
     }
-    // Injections & Critical Care
+    // 10. Injections & Critical Care
     else if (
       comp.includes('injection') || comp.includes('inj') || 
       comp.includes('ampoule') || comp.includes('vial')
@@ -789,7 +775,7 @@ export default function AdminLayout() {
       dosage = "Administered intravenously or intramuscularly by qualified healthcare professionals as directed.";
       lbl = "Sterile parenteral formulation designed for rapid systemic onset, bypasses first-pass metabolism to achieve immediate therapeutic blood concentration.";
     }
-    // Infusions & IV Fluids
+    // 11. Infusions & IV Fluids
     else if (
       comp.includes('infusion') || comp.includes('iv fluids')
     ) {
@@ -798,7 +784,7 @@ export default function AdminLayout() {
       dosage = "Administered by continuous intravenous infusion under medical supervision.";
       lbl = "Isotonic sterile intravenous fluid ensuring prompt volume expansion, acid-base stabilization, and systemic hydration.";
     }
-    // Pediatric Care & Oral Drops
+    // 12. Pediatric Care & Oral Drops
     else if (
       comp.includes('suspension') || comp.includes('pediatric') || 
       comp.includes('drops') || comp.includes('susp')
@@ -808,7 +794,21 @@ export default function AdminLayout() {
       dosage = "Dosage based on body weight and age as prescribed by a pediatrician. Use calibrated dropper.";
       lbl = "Palatable pediatric formulation designed to ensure precise dosage control, safe administration, and excellent compliance in children.";
     }
-    // Default Fallback (Tablets & Oral Solids)
+    // 13. Gastrointestinal & Antacids (Moved down to prevent false positive matching of general "acid")
+    else if (
+      comp.includes('pantoprazole') || comp.includes('rabeprazole') || 
+      comp.includes('omeprazole') || comp.includes('esomeprazole') || 
+      comp.includes('ranitidine') || comp.includes('domperidone') || 
+      comp.includes('sucralfate') || comp.includes('itopride') || 
+      comp.includes('levosulpiride') || comp.includes('digestive') || 
+      comp.includes('acid') || comp.includes('gastro')
+    ) {
+      categoryId = "gastro";
+      indications = "Acidity, GERD (Gastroesophageal Reflux Disease), peptic ulcers, heartburn, bloating, and dyspepsia.";
+      dosage = "1 tablet/capsule daily in the morning before breakfast (on empty stomach) or as directed by a physician.";
+      lbl = "Proton pump inhibitor (PPI) or gastroprokinetic formulation that reduces stomach acid secretion and enhances gut motility for fast, long-lasting relief from acid reflux and digestive discomfort.";
+    }
+    // 14. Default Fallback (Tablets & Oral Solids)
     else {
       categoryId = "tablets";
       indications = "Symptomatic relief and therapeutic management of indications associated with the active ingredients.";
