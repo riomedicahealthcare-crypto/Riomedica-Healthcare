@@ -1552,6 +1552,12 @@ export default function AdminLayout() {
     const updates = [];
 
     const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const getWords = (str) => {
+      return str.toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '') // keep spaces and hyphens for word splitting
+        .split(/[\s-]+/)
+        .filter(w => w.length > 0);
+    };
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -1566,12 +1572,46 @@ export default function AdminLayout() {
 
       // Check for matching product in state
       let match = null;
-      for (const p of products) {
-        const normProdName = normalize(p.name);
-        // Direct or substring matching
-        if (normProdName === normFileName || normProdName.includes(normFileName) || normFileName.includes(normProdName)) {
-          match = p;
-          break;
+
+      // 1. Try exact match first (prevents prefix shadowing)
+      match = products.find(p => normalize(p.name) === normFileName);
+
+      // 2. Try best word overlap match
+      if (!match) {
+        const fileWords = getWords(fileNameWithoutExt);
+        let bestMatch = null;
+        let maxOverlap = 0;
+
+        for (const p of products) {
+          const prodWords = getWords(p.name);
+          const intersection = fileWords.filter(w => prodWords.includes(w));
+          const overlap = intersection.length;
+
+          if (overlap > maxOverlap) {
+            maxOverlap = overlap;
+            bestMatch = p;
+          } else if (overlap === maxOverlap && overlap > 0 && bestMatch) {
+            const diff1 = Math.abs(p.name.length - fileNameWithoutExt.length);
+            const diff2 = Math.abs(bestMatch.name.length - fileNameWithoutExt.length);
+            if (diff1 < diff2) {
+              bestMatch = p;
+            }
+          }
+        }
+
+        if (maxOverlap > 0) {
+          match = bestMatch;
+        }
+      }
+
+      // 3. Fallback: simple substring matching
+      if (!match) {
+        for (const p of products) {
+          const normProdName = normalize(p.name);
+          if (normProdName.includes(normFileName) || normFileName.includes(normProdName)) {
+            match = p;
+            break;
+          }
         }
       }
 
