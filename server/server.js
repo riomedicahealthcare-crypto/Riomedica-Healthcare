@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import * as XLSX from 'xlsx';
 import nodemailer from 'nodemailer';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, update } from 'firebase/database';
+import { getDatabase, ref, onValue, update, set, get } from 'firebase/database';
 import crypto from 'crypto';
 
 // ES Module __dirname equivalent
@@ -184,11 +184,188 @@ const readDb = () => {
   }
 };
 
+const base64ToFile = (base64Str, prefix, id, extension = 'png') => {
+  if (!base64Str) return '';
+  if (!base64Str.startsWith('data:')) return base64Str;
+  try {
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return base64Str;
+
+    const ext = matches[1].split('/')[1] || extension;
+    const buffer = Buffer.from(matches[2], 'base64');
+    const filename = `${prefix}_${id}.${ext}`;
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadsDir, filename);
+    fs.writeFileSync(filePath, buffer);
+    return `/uploads/${filename}`;
+  } catch (err) {
+    console.error(`[Base64 Sync] Error writing file for ${prefix}_${id}:`, err.message);
+    return base64Str;
+  }
+};
+
+const rebuildUploadsFromDb = (db) => {
+  if (!db) return;
+  
+  if (Array.isArray(db.categories)) {
+    db.categories.forEach(cat => {
+      if (cat.icon && cat.icon.startsWith('data:image/')) {
+        base64ToFile(cat.icon, 'category', cat.id);
+      }
+    });
+  }
+
+  if (Array.isArray(db.products)) {
+    db.products.forEach(p => {
+      if (p.packshot && p.packshot.startsWith('data:image/')) {
+        base64ToFile(p.packshot, 'packshot', p.id);
+      }
+      if (Array.isArray(p.visualAids)) {
+        p.visualAids.forEach((aid, idx) => {
+          if (aid && aid.startsWith('data:image/')) {
+            base64ToFile(aid, 'visualaid', `${p.id}_${idx}`);
+          }
+        });
+      }
+    });
+  }
+
+  if (db.branding) {
+    if (db.branding.logo && db.branding.logo.startsWith('data:image/')) {
+      base64ToFile(db.branding.logo, 'branding', 'logo');
+    }
+    if (db.branding.landingBgImage && db.branding.landingBgImage.startsWith('data:image/')) {
+      base64ToFile(db.branding.landingBgImage, 'branding', 'landingBgImage');
+    }
+    if (db.branding.topRightBadge && db.branding.topRightBadge.startsWith('data:image/')) {
+      base64ToFile(db.branding.topRightBadge, 'branding', 'topRightBadge');
+    }
+  }
+
+  if (Array.isArray(db.banners)) {
+    db.banners.forEach(b => {
+      if (b.imageUrl && b.imageUrl.startsWith('data:image/')) {
+        base64ToFile(b.imageUrl, 'banner', b.id);
+      }
+    });
+  }
+
+  if (Array.isArray(db.registrations)) {
+    db.registrations.forEach(r => {
+      if (r.drugLicenceUrl && r.drugLicenceUrl.startsWith('data:image/')) {
+        base64ToFile(r.drugLicenceUrl, 'reg_licence', r.id);
+      }
+      if (r.gstUrl && r.gstUrl.startsWith('data:image/')) {
+        base64ToFile(r.gstUrl, 'reg_gst', r.id);
+      }
+      if (r.panUrl && r.panUrl.startsWith('data:image/')) {
+        base64ToFile(r.panUrl, 'reg_pan', r.id);
+      }
+    });
+  }
+};
+
+const cleanDbForClient = (db) => {
+  if (!db) return db;
+  const clean = JSON.parse(JSON.stringify(db));
+
+  const getCleanUrl = (base64Str, prefix, id) => {
+    if (!base64Str) return '';
+    if (!base64Str.startsWith('data:')) return base64Str;
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return base64Str;
+    const ext = matches[1].split('/')[1] || 'png';
+    return `/uploads/${prefix}_${id}.${ext}`;
+  };
+
+  if (Array.isArray(clean.categories)) {
+    clean.categories.forEach(cat => {
+      cat.icon = getCleanUrl(cat.icon, 'category', cat.id);
+    });
+  }
+
+  if (Array.isArray(clean.products)) {
+    clean.products.forEach(p => {
+      p.packshot = getCleanUrl(p.packshot, 'packshot', p.id);
+      if (Array.isArray(p.visualAids)) {
+        p.visualAids = p.visualAids.map((aid, idx) => getCleanUrl(aid, 'visualaid', `${p.id}_${idx}`));
+      }
+    });
+  }
+
+  if (clean.branding) {
+    clean.branding.logo = getCleanUrl(clean.branding.logo, 'branding', 'logo');
+    clean.branding.landingBgImage = getCleanUrl(clean.branding.landingBgImage, 'branding', 'landingBgImage');
+    clean.branding.topRightBadge = getCleanUrl(clean.branding.topRightBadge, 'branding', 'topRightBadge');
+  }
+
+  if (Array.isArray(clean.banners)) {
+    clean.banners.forEach(b => {
+      b.imageUrl = getCleanUrl(b.imageUrl, 'banner', b.id);
+    });
+  }
+
+  if (Array.isArray(clean.registrations)) {
+    clean.registrations.forEach(r => {
+      r.drugLicenceUrl = getCleanUrl(r.drugLicenceUrl, 'reg_licence', r.id);
+      r.gstUrl = getCleanUrl(r.gstUrl, 'reg_gst', r.id);
+      r.panUrl = getCleanUrl(r.panUrl, 'reg_pan', r.id);
+    });
+  }
+
+  return clean;
+};
+
 const writeDb = (data) => {
   try {
     fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
+    rebuildUploadsFromDb(data);
+    if (firebaseDb) {
+      set(ref(firebaseDb, '/'), data)
+        .then(() => console.log("[Firebase Sync] Server database successfully backed up to Firebase cloud"))
+        .catch(err => console.error("[Firebase Sync] Failed to back up server database to Firebase:", err.message));
+    }
   } catch (err) {
     console.error("Error writing to database file", err);
+  }
+};
+
+const syncFromFirebaseOnStartup = async () => {
+  if (!firebaseDb) {
+    console.log("[Firebase Sync] Firebase not initialized. Skipping startup sync.");
+    try {
+      const db = readDb();
+      rebuildUploadsFromDb(db);
+    } catch (err) {}
+    return;
+  }
+
+  console.log("[Firebase Sync] Fetching database backup from Firebase Realtime Database on startup...");
+  try {
+    const snap = await get(ref(firebaseDb, '/'));
+    if (snap.exists()) {
+      const fbData = snap.val();
+      console.log("[Firebase Sync] Success! Found database backup on Firebase. Restoring local db.json...");
+      
+      fs.writeFileSync(dbPath, JSON.stringify(fbData, null, 2), 'utf8');
+      rebuildUploadsFromDb(fbData);
+      console.log("[Firebase Sync] Database and physical uploads restored successfully on startup!");
+    } else {
+      console.log("[Firebase Sync] No database backup found on Firebase. Using local db.json...");
+      const db = readDb();
+      rebuildUploadsFromDb(db);
+    }
+  } catch (err) {
+    console.error("[Firebase Sync] Error restoring database from Firebase on startup:", err.message);
+    try {
+      const db = readDb();
+      rebuildUploadsFromDb(db);
+    } catch (e) {}
   }
 };
 
@@ -252,7 +429,7 @@ const excelUpload = multer({
 // --- CATEGORIES ROUTES ---
 app.get('/api/categories', (req, res) => {
   const db = readDb();
-  res.json(db.categories);
+  res.json(cleanDbForClient(db).categories);
 });
 
 app.post('/api/categories', requireAdminAuth, (req, res) => {
@@ -288,7 +465,7 @@ app.delete('/api/categories/:id', requireAdminAuth, (req, res) => {
 // --- PRODUCTS ROUTES ---
 app.get('/api/products', (req, res) => {
   const db = readDb();
-  res.json(db.products);
+  res.json(cleanDbForClient(db).products);
 });
 
 app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
@@ -592,7 +769,7 @@ app.post('/api/register', registerUploads, (req, res) => {
 // Get registrations lists (for Admin Dashboard)
 app.get('/api/registrations', requireAdminAuth, (req, res) => {
   const db = readDb();
-  res.json(db.registrations || []);
+  res.json(cleanDbForClient(db).registrations || []);
 });
 
 // Approve registration request & generate login details
@@ -1490,7 +1667,7 @@ app.post('/api/otp/verify-email-reset', (req, res) => {
 // --- BRANDING ROUTES ---
 app.get('/api/branding', (req, res) => {
   const db = readDb();
-  res.json(db.branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "", landingTitle: "", landingDescription: "", landingBgImage: "", topRightBadge: "" });
+  res.json(cleanDbForClient(db).branding || { companyName: "RIOMEDICA", tagline: "Healthcare", logo: "", landingTitle: "", landingDescription: "", landingBgImage: "", topRightBadge: "" });
 });
 
 app.post('/api/branding', requireAdminAuth, brandingUpload, (req, res) => {
@@ -1570,7 +1747,7 @@ app.post('/api/settings', requireAdminAuth, (req, res) => {
 // --- BANNERS ROUTES ---
 app.get('/api/banners', (req, res) => {
   const db = readDb();
-  res.json(db.banners || []);
+  res.json(cleanDbForClient(db).banners || []);
 });
 
 app.post('/api/banners', requireAdminAuth, bannerUpload, (req, res) => {
@@ -2127,4 +2304,5 @@ if (fs.existsSync(clientDistPath)) {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  syncFromFirebaseOnStartup();
 });
