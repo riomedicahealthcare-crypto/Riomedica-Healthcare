@@ -194,13 +194,12 @@ const base64ToFile = (base64Str, prefix, id, extension = 'png') => {
     const ext = matches[1].split('/')[1] || extension;
     const buffer = Buffer.from(matches[2], 'base64');
     const filename = `${prefix}_${id}.${ext}`;
-    const uploadsDir = path.join(process.cwd(), 'uploads');
     
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
     }
     
-    const filePath = path.join(uploadsDir, filename);
+    const filePath = path.join(uploadDir, filename);
     fs.writeFileSync(filePath, buffer);
     return `/uploads/${filename}`;
   } catch (err) {
