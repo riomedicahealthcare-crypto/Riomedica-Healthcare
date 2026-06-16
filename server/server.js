@@ -983,7 +983,10 @@ const sendOtpMail = async (toEmail, otp, type) => {
       },
       tls: {
         rejectUnauthorized: false
-      }
+      },
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 4000
     });
 
     const mailOptions = {
@@ -1036,6 +1039,10 @@ const firebaseApp = initializeApp(firebaseConfig);
 const firebaseDb = getDatabase(firebaseApp);
 
 const startFirebaseOtpListener = () => {
+  if (process.env.RENDER === 'true') {
+    console.log("[Firebase Server] Running on Render - Disabling Firebase RTDB OTP listener to let local servers process emails.");
+    return;
+  }
   const activeOtpsRef = ref(firebaseDb, 'active_otps');
   console.log("[Firebase Server] Listening for active OTP requests on Firebase RTDB...");
   
