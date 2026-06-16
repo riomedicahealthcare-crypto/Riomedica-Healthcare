@@ -491,6 +491,19 @@ function handleLocalFallback(url, options) {
       return newProduct;
     }
   }
+  if (path === '/products/bulk-update') {
+    if (method === 'POST') {
+      const { products } = JSON.parse(options.body || '{}');
+      if (Array.isArray(products)) {
+        db.products = db.products.map(p => {
+          const matched = products.find(u => u.id === p.id);
+          return matched ? { ...p, ...matched } : p;
+        });
+        saveLocalDb(db);
+        return { message: `Successfully updated ${products.length} products (Offline Mock)`, count: products.length };
+      }
+    }
+  }
   if (path === '/products/reset') {
     if (method === 'POST') {
       db.products = [];
