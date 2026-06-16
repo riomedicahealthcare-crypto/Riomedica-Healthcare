@@ -2634,6 +2634,14 @@ export default function AdminLayout() {
                                 src={getImgUrl(prod.packshot)} 
                                 alt="pack" 
                                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                onError={(e) => {
+                                  // Static file missing (Render ephemeral FS) — fallback to API endpoint
+                                  // that reads the Base64 directly from db.json
+                                  const fallback = `${IMAGE_BASE}/api/image/packshot/${prod.id}`;
+                                  if (e.target.src !== fallback) {
+                                    e.target.src = fallback;
+                                  }
+                                }}
                               />
                             ) : (
                               <Icons.Package size={20} color="#94a3b8" />

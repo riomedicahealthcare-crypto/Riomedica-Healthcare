@@ -4115,7 +4115,9 @@ export default function MobileApp() {
                   >
                     <div className="product-image-container" style={{ width: '48px', height: '48px' }}>
                       {prod.packshot ? (
-                        <img src={getImgUrl(prod.packshot)} alt={prod.name} />
+                        <img src={getImgUrl(prod.packshot)} alt={prod.name}
+                          onError={(e) => { const f=`${IMAGE_BASE}/api/image/packshot/${prod.id}`; if(e.target.src!==f) e.target.src=f; }}
+                        />
                       ) : (
                         <span className="fallback-image-text" style={{ fontSize: '0.65rem' }}>{prod.name.split(' ')[0]}</span>
                       )}
@@ -4827,7 +4829,9 @@ export default function MobileApp() {
                   >
                     <div className="product-image-container">
                       {prod.packshot ? (
-                        <img src={getImgUrl(prod.packshot)} alt={prod.name} />
+                        <img src={getImgUrl(prod.packshot)} alt={prod.name}
+                          onError={(e) => { const f=`${IMAGE_BASE}/api/image/packshot/${prod.id}`; if(e.target.src!==f) e.target.src=f; }}
+                        />
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                           <Icons.Container size={24} color="#64748b" />
@@ -4973,7 +4977,9 @@ export default function MobileApp() {
                   >
                     <div className="product-image-container" style={{ borderColor: 'rgba(16, 185, 129, 0.2)' }}>
                       {prod.packshot ? (
-                        <img src={getImgUrl(prod.packshot)} alt={prod.name} />
+                        <img src={getImgUrl(prod.packshot)} alt={prod.name}
+                          onError={(e) => { const f=`${IMAGE_BASE}/api/image/packshot/${prod.id}`; if(e.target.src!==f) e.target.src=f; }}
+                        />
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                           <Icons.Sparkles size={24} color="#10b981" />

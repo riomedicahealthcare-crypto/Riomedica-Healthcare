@@ -275,47 +275,47 @@ const cleanDbForClient = (db) => {
   if (!db) return db;
   const clean = JSON.parse(JSON.stringify(db));
 
-  const getCleanUrl = (base64Str, prefix, id) => {
+  // Use the real base64ToFile which WRITES the physical file and returns the URL.
+  // This ensures the static file exists on disk whenever the client fetches products.
+  // Falls back gracefully: if base64Str is already a URL, returns it unchanged.
+  const toUrl = (base64Str, prefix, id) => {
     if (!base64Str) return '';
-    if (!base64Str.startsWith('data:')) return base64Str;
-    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) return base64Str;
-    const ext = matches[1].split('/')[1] || 'png';
-    return `/uploads/${prefix}_${id}.${ext}`;
+    if (!base64Str.startsWith('data:')) return base64Str; // already a URL
+    return base64ToFile(base64Str, prefix, id); // writes file, returns /uploads/...
   };
 
   if (Array.isArray(clean.categories)) {
     clean.categories.forEach(cat => {
-      cat.icon = getCleanUrl(cat.icon, 'category', cat.id);
+      cat.icon = toUrl(cat.icon, 'category', cat.id);
     });
   }
 
   if (Array.isArray(clean.products)) {
     clean.products.forEach(p => {
-      p.packshot = getCleanUrl(p.packshot, 'packshot', p.id);
+      p.packshot = toUrl(p.packshot, 'packshot', p.id);
       if (Array.isArray(p.visualAids)) {
-        p.visualAids = p.visualAids.map((aid, idx) => getCleanUrl(aid, 'visualaid', `${p.id}_${idx}`));
+        p.visualAids = p.visualAids.map((aid, idx) => toUrl(aid, 'visualaid', `${p.id}_${idx}`));
       }
     });
   }
 
   if (clean.branding) {
-    clean.branding.logo = getCleanUrl(clean.branding.logo, 'branding', 'logo');
-    clean.branding.landingBgImage = getCleanUrl(clean.branding.landingBgImage, 'branding', 'landingBgImage');
-    clean.branding.topRightBadge = getCleanUrl(clean.branding.topRightBadge, 'branding', 'topRightBadge');
+    clean.branding.logo = toUrl(clean.branding.logo, 'branding', 'logo');
+    clean.branding.landingBgImage = toUrl(clean.branding.landingBgImage, 'branding', 'landingBgImage');
+    clean.branding.topRightBadge = toUrl(clean.branding.topRightBadge, 'branding', 'topRightBadge');
   }
 
   if (Array.isArray(clean.banners)) {
     clean.banners.forEach(b => {
-      b.imageUrl = getCleanUrl(b.imageUrl, 'banner', b.id);
+      b.imageUrl = toUrl(b.imageUrl, 'banner', b.id);
     });
   }
 
   if (Array.isArray(clean.registrations)) {
     clean.registrations.forEach(r => {
-      r.drugLicenceUrl = getCleanUrl(r.drugLicenceUrl, 'reg_licence', r.id);
-      r.gstUrl = getCleanUrl(r.gstUrl, 'reg_gst', r.id);
-      r.panUrl = getCleanUrl(r.panUrl, 'reg_pan', r.id);
+      r.drugLicenceUrl = toUrl(r.drugLicenceUrl, 'reg_licence', r.id);
+      r.gstUrl = toUrl(r.gstUrl, 'reg_gst', r.id);
+      r.panUrl = toUrl(r.panUrl, 'reg_pan', r.id);
     });
   }
 
@@ -468,6 +468,47 @@ app.get('/api/products', (req, res) => {
   const db = readDb();
   res.json(cleanDbForClient(db).products);
 });
+
+// Fallback image endpoint — serves the raw Base64 image from db.json when the
+// static /uploads/ file has been lost (e.g. after Render container restart).
+// Client hits this URL: /api/image/packshot/<productId>
+app.get('/api/image/:type/:id', (req, res) => {
+  try {
+    const { type, id } = req.params;
+    const db = readDb();
+    let base64Str = '';
+
+    if (type === 'packshot') {
+      const product = (db.products || []).find(p => p.id === id);
+      base64Str = product?.packshot || '';
+    } else if (type === 'category') {
+      const cat = (db.categories || []).find(c => c.id === id);
+      base64Str = cat?.icon || '';
+    } else if (type === 'banner') {
+      const banner = (db.banners || []).find(b => b.id === id);
+      base64Str = banner?.imageUrl || '';
+    } else if (type === 'branding-logo') {
+      base64Str = db.branding?.logo || '';
+    }
+
+    if (!base64Str || !base64Str.startsWith('data:')) {
+      return res.status(404).json({ error: 'Image not found in database' });
+    }
+
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches) return res.status(400).json({ error: 'Invalid image data' });
+
+    const mimeType = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // cache 1 day
+    res.send(buffer);
+  } catch (err) {
+    console.error('[Image Fallback] Error serving image:', err.message);
+    res.status(500).json({ error: 'Failed to serve image' });
+  }
+});
+
 
 app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
   const { name, categoryId, composition, indications, dosage, lbl, videoUrl, isNewLaunch, mrp } = req.body;
