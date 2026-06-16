@@ -2642,6 +2642,16 @@ export default function MobileApp() {
                     <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4' }}>
                       We've sent a 6-digit verification code. Please enter it below along with your new password.
                     </p>
+                    {mockEmailHint && (
+                      <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '10px 14px', textAlign: 'left', marginBottom: '8px' }}>
+                        <p style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700, margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          [MOCK EMAIL GATEWAY]
+                        </p>
+                        <p style={{ fontSize: '0.75rem', color: '#cbd5e1', margin: 0 }}>
+                          Code: <strong style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '0.95rem', color: '#34d399' }}>{mockEmailHint}</strong>
+                        </p>
+                      </div>
+                    )}
 
                     <div className="auth-input-container">
                       <Icons.Key size={18} />
@@ -2967,6 +2977,16 @@ export default function MobileApp() {
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-mobile-secondary)', marginTop: '6px', lineHeight: '1.4' }}>
                   A 6-digit verification code has been sent to your email <strong>{regEmail}</strong>.
                 </p>
+                {mockSmsHint && (
+                  <div style={{ marginTop: '14px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '10px 14px', textAlign: 'left' }}>
+                    <p style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700, margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      [MOCK SMS / EMAIL GATEWAY]
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#cbd5e1', margin: 0 }}>
+                      Code: <strong style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '0.95rem', color: '#34d399' }}>{mockSmsHint}</strong>
+                    </p>
+                  </div>
+                )}
               </div>
  
               <form onSubmit={handleVerifyMobileAndRegister} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
