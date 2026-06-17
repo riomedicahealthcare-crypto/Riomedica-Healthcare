@@ -828,6 +828,306 @@ export default function AdminLayout() {
     setProdLbl(lbl);
   };
 
+  // Bulk Auto-Fill Details from Chemical Composition for all products
+  const handleBulkAutoFillDetails = async () => {
+    if (!products || products.length === 0) {
+      alert("No products in the database to analyze.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to automatically analyze and fill therapeutic categories, indications, dosage guidelines, and literature for all ${products.length} medicines in the database? This will update empty or unassigned fields.`)) {
+      return;
+    }
+
+    setIsProcessingPackshots(true);
+    let updatedCount = 0;
+    const updatedProductsList = [];
+
+    const getDetailsFromComposition = (prodComposition) => {
+      if (!prodComposition) return null;
+      const comp = prodComposition.toLowerCase();
+
+      let indications = "";
+      let dosage = "";
+      let lbl = "";
+      let categoryId = "";
+
+      // 1. Antibiotics & Anti-infectives
+      if (
+        comp.includes('cefpodoxime') || comp.includes('cefixime') || 
+        comp.includes('azithromycin') || comp.includes('clarithromycin') || 
+        comp.includes('amoxicillin') || comp.includes('moxifloxacin') || 
+        comp.includes('ofloxacin') || comp.includes('cefuroxime') || 
+        comp.includes('clavulanic') || comp.includes('sulbactam') || 
+        comp.includes('ornidazole') || comp.includes('secnidazole') || 
+        comp.includes('linzolid') || comp.includes('clindamycin') || 
+        comp.includes('ciprofloxacin') || comp.includes('levofloxacin') || 
+        comp.includes('antibiotic') || comp.includes('podoxime')
+      ) {
+        categoryId = "antibiotics";
+        indications = "Bacterial infections of the respiratory tract (bronchitis, pneumonia), ENT (otitis media, tonsillitis), urinary tract (UTI), and skin structures.";
+        dosage = "1 tablet once or twice daily after meals, completing the full course as prescribed by the physician.";
+        lbl = "Broad-spectrum antibacterial agent that inhibits bacterial cell wall synthesis or blocks vital protein production, effectively eliminating the pathogen and preventing drug resistance.";
+      }
+      // 2. Neurology & Psychotropics
+      else if (
+        comp.includes('gabapentin') || comp.includes('pregabalin') || 
+        comp.includes('piracetam') || comp.includes('citicoline') || 
+        comp.includes('levetiracetam') || comp.includes('neurology')
+      ) {
+        categoryId = "neurology";
+        indications = "Neuropathic pain, diabetic neuropathy, post-herpetic neuralgia, cognitive enhancement, and seizure control.";
+        dosage = "1 tablet/capsule daily or as directed by a neurologist, preferably at night.";
+        lbl = "Neurological regulator that modulates calcium channel activity to suppress hyper-excited neuropathic pain signals and support neural cellular metabolism.";
+      }
+      // 3. Cardiovascular & Anti-diabetic
+      else if (
+        comp.includes('amlodipine') || comp.includes('atenolol') || 
+        comp.includes('telmisartan') || comp.includes('losartan') || 
+        comp.includes('metoprolol') || comp.includes('ramipril') || 
+        comp.includes('atorvastatin') || comp.includes('rosuvastatin') || 
+        comp.includes('clopidogrel') || comp.includes('glimepiride') || 
+        comp.includes('metformin') || comp.includes('vildagliptin') || 
+        comp.includes('teneligliptin') || comp.includes('cardio') || 
+        comp.includes('diabetic')
+      ) {
+        categoryId = "cardio-diabetic";
+        indications = "Hypertension (high blood pressure), angina pectoris (chest pain), chronic heart failure, and dyslipidemia.";
+        dosage = "1 tablet daily in the morning or evening at the same time, or as directed by the cardiologist.";
+        lbl = "Cardiovascular therapeutic agent designed to selectively block calcium channels or angiotensin receptors, dilating blood vessels to optimize cardiac output and reduce vascular resistance.";
+      }
+      // 4. Multivitamins & Antioxidants / Nutritional
+      else if (
+        comp.includes('calcium') || comp.includes('vitamin') || 
+        comp.includes('methylcobalamin') || comp.includes('zinc') || 
+        comp.includes('folate') || comp.includes('iron') || 
+        comp.includes('multivitamin') || comp.includes('antioxidant') || 
+        comp.includes('biotin') || comp.includes('lycopene') || 
+        comp.includes('coenzyme') || comp.includes('amino acid') || 
+        comp.includes('protein') || comp.includes('ginseng') || 
+        comp.includes('cranberry') || comp.includes('d-mannose') || 
+        comp.includes('nutrition') || comp.includes('supplement') ||
+        comp.includes('glucosamine') || comp.includes('co-enzyme') ||
+        comp.includes('folic') || comp.includes('calcitriol')
+      ) {
+        categoryId = "multivitamins";
+        indications = "Nutritional deficiencies, calcium and bone mineralization support, neuropathies, fatigue, and general convalescence.";
+        dosage = "1 tablet/capsule daily after meals, preferably at bedtime, or as directed by a physician.";
+        lbl = "Comprehensive nutritional supplement that enhances bone density, supports hemoglobin synthesis, promotes myelin sheath regeneration, and neutralizes free radicals for cellular vitality.";
+      }
+      // 5. Cough, Cold & Anti-allergic
+      else if (
+        comp.includes('montelukast') || comp.includes('levocetirizine') || 
+        comp.includes('cetirizine') || comp.includes('fexofenadine') || 
+        comp.includes('ambroxol') || comp.includes('guaiphenesin') || 
+        comp.includes('phenylephrine') || comp.includes('dextromethorphan') || 
+        comp.includes('terbutaline') || comp.includes('bromhexine') || 
+        comp.includes('cough') || comp.includes('cold') || 
+        comp.includes('allergy') || comp.includes('asthma')
+      ) {
+        categoryId = "cough-cold";
+        indications = "Productive or dry cough, allergic rhinitis, sneezing, running nose, congestion, and asthma prophylaxis.";
+        dosage = "1 tablet daily at bedtime, or 5-10ml syrup twice daily as prescribed by the physician.";
+        lbl = "Synergistic antihistamine, mucolytic, and bronchodilator formulation that relaxes airway smooth muscles, thins bronchial secretions, and blocks allergic receptors for rapid relief.";
+      }
+      // 6. Dental Care & Oral Hygiene
+      else if (
+        comp.includes('tooth') || comp.includes('gum') || 
+        comp.includes('mouthwash') || comp.includes('dental') ||
+        comp.includes('chlorhexidine') || comp.includes('potassium nitrate') ||
+        comp.includes('triclosan')
+      ) {
+        categoryId = "dental";
+        indications = "Dental plaque, gingivitis, bad breath (halitosis), and teeth sensitivity.";
+        dosage = "Use a small amount for brushing twice daily, or rinse with 10ml of solution for 1 minute twice daily. Do not swallow.";
+        lbl = "Advanced oral hygiene formulation that provides antibacterial protection, reduces bacterial load, and strengthens enamel for healthy gums and teeth.";
+      }
+      // 7. Dermatological & Topical Creams
+      else if (
+        comp.includes('soap') || comp.includes('powder') || 
+        comp.includes('cream') || comp.includes('ointment') || 
+        comp.includes('topical') || comp.includes('ketoconazole') ||
+        comp.includes('clotrimazole') || comp.includes('miconazole') ||
+        comp.includes('luliconazole') || comp.includes('permethrin') ||
+        comp.includes('clobetasol') || comp.includes('fusidic') ||
+        comp.includes('derma')
+      ) {
+        categoryId = "derma";
+        indications = "Fungal skin infections (tinea pedis, ringworm), eczema, dermatitis, acne, skin rashes, and localized skin inflammation.";
+        dosage = "Apply a thin layer to the affected area 1-2 times daily, or wash affected area with soap as directed by the dermatologist.";
+        lbl = "Dermatological topical agent engineered for deep skin penetration, offering robust anti-inflammatory, anti-fungal, or antibacterial action directly at the lesion site.";
+      }
+      // 8. Ophthalmic & Ear Drops
+      else if (
+        comp.includes('eye drop') || comp.includes('ear drop') || 
+        comp.includes('carboxymethylcellulose') || comp.includes('moxifloxacin eye') || 
+        comp.includes('ciprofloxacin eye') || comp.includes('naphazoline') || 
+        comp.includes('chloramphenicol') || comp.includes('drop') ||
+        comp.includes('ophthalmic')
+      ) {
+        categoryId = "ophthalmic";
+        indications = "Bacterial conjunctivitis, eye irritation, dry eye syndrome, otitis externa, and general ear/eye infections.";
+        dosage = "Instill 1-2 drops in the affected eye/ear 3-4 times daily or as advised by the ophthalmologist/ENT specialist.";
+        lbl = "Sterile topical drops providing immediate antimicrobial action or lubrication to soothe ocular tissues, reduce redness, and clear localized infections.";
+      }
+      // 9. Analgesics & Pain Management
+      else if (
+        comp.includes('aceclofenac') || comp.includes('paracetamol') || 
+        comp.includes('diclofenac') || comp.includes('nimesulide') || 
+        comp.includes('ibuprofen') || comp.includes('trypsin') || 
+        comp.includes('chymotrypsin') || comp.includes('serratiopeptidase') || 
+        comp.includes('diacerein') || comp.includes('etoricoxib') || 
+        comp.includes('tramadol') || comp.includes('pain') || 
+        comp.includes('analgesic') || comp.includes('serratio')
+      ) {
+        categoryId = "pain-management";
+        indications = "Mild to moderate pain, fever, post-operative inflammation, muscle spasms, osteoarthritis, and rheumatoid arthritis.";
+        dosage = "1 tablet twice daily after meals or as directed by a physician for symptomatic pain relief.";
+        lbl = "Effective NSAID and proteolytic enzyme combination that inhibits COX enzymes (reducing pain-inducing prostaglandins) and resolves tissue edema to accelerate healing and restore mobility.";
+      }
+      // 10. Injections & Critical Care
+      else if (
+        comp.includes('injection') || comp.includes('inj') || 
+        comp.includes('ampoule') || comp.includes('vial')
+      ) {
+        categoryId = "injections";
+        indications = "Severe acute infections, critical care electrolyte restoration, or systemic emergencies requiring direct vascular access.";
+        dosage = "Administered intravenously or intramuscularly by qualified healthcare professionals as directed.";
+        lbl = "Sterile parenteral formulation designed for rapid systemic onset, bypasses first-pass metabolism to achieve immediate therapeutic blood concentration.";
+      }
+      // 11. Infusions & IV Fluids
+      else if (
+        comp.includes('infusion') || comp.includes('iv fluids')
+      ) {
+        categoryId = "infusions";
+        indications = "Dehydration, fluid replenishment, electrolyte imbalance, or dilution of compatible intravenous medications.";
+        dosage = "Administered by continuous intravenous infusion under medical supervision.";
+        lbl = "Isotonic sterile intravenous fluid ensuring prompt volume expansion, acid-base stabilization, and systemic hydration.";
+      }
+      // 12. Pediatric Care & Oral Drops
+      else if (
+        comp.includes('suspension') || comp.includes('pediatric') || 
+        comp.includes('drops') || comp.includes('susp')
+      ) {
+        categoryId = "pediatric";
+        indications = "Pediatric fever, common cold, respiratory symptoms, or colic pain.";
+        dosage = "Dosage based on body weight and age as prescribed by a pediatrician. Use calibrated dropper.";
+        lbl = "Palatable pediatric formulation designed to ensure precise dosage control, safe administration, and excellent compliance in children.";
+      }
+      // 13. Gastrointestinal & Antacids (Moved down to prevent false positive matching of general "acid")
+      else if (
+        comp.includes('pantoprazole') || comp.includes('rabeprazole') || 
+        comp.includes('omeprazole') || comp.includes('esomeprazole') || 
+        comp.includes('ranitidine') || comp.includes('domperidone') || 
+        comp.includes('sucralfate') || comp.includes('itopride') || 
+        comp.includes('levosulpiride') || comp.includes('digestive') || 
+        comp.includes('acid') || comp.includes('gastro')
+      ) {
+        categoryId = "gastro";
+        indications = "Acidity, GERD (Gastroesophageal Reflux Disease), peptic ulcers, heartburn, bloating, and dyspepsia.";
+        dosage = "1 tablet/capsule daily in the morning before breakfast (on empty stomach) or as directed by a physician.";
+        lbl = "Proton pump inhibitor (PPI) or gastroprokinetic formulation that reduces stomach acid secretion and enhances gut motility for fast, long-lasting relief from acid reflux and digestive discomfort.";
+      }
+      // 14. Default Fallback (Tablets & Oral Solids)
+      else {
+        categoryId = "tablets";
+        indications = "Symptomatic relief and therapeutic management of indications associated with the active ingredients.";
+        dosage = "As directed by the physician or specialist.";
+        lbl = "High-efficacy pharmaceutical formulation manufactured under strict quality standards to ensure target bioavailability and patient compliance.";
+      }
+
+      return { categoryId, indications, dosage, lbl };
+    };
+
+    const cleanProducts = products.map(p => {
+      // Avoid raw Base64 data urls in bulk updates to prevent localStorage quota issues
+      const cleanProd = { ...p };
+      if (p.packshot && p.packshot.startsWith('data:')) {
+        cleanProd.packshot = '';
+      }
+      if (p.visualAids && Array.isArray(p.visualAids)) {
+        cleanProd.visualAids = p.visualAids.map(aid => aid.startsWith('data:') ? '' : aid);
+      }
+      return cleanProd;
+    });
+
+    for (let i = 0; i < cleanProducts.length; i++) {
+      const p = cleanProducts[i];
+      const details = getDetailsFromComposition(p.composition);
+      if (details) {
+        let isModified = false;
+        const updatedProduct = { ...p };
+
+        if (!p.categoryId || p.categoryId === 'unassigned' || p.categoryId === '') {
+          updatedProduct.categoryId = details.categoryId;
+          isModified = true;
+        }
+        if (!p.indications) {
+          updatedProduct.indications = details.indications;
+          isModified = true;
+        }
+        if (!p.dosage) {
+          updatedProduct.dosage = details.dosage;
+          isModified = true;
+        }
+        if (!p.lbl) {
+          updatedProduct.lbl = details.lbl;
+          isModified = true;
+        }
+
+        if (isModified) {
+          updatedProductsList.push(updatedProduct);
+          updatedCount++;
+        }
+      }
+    }
+
+    if (updatedCount === 0) {
+      alert("All products already have therapeutic details filled. No updates needed.");
+      setIsProcessingPackshots(false);
+      return;
+    }
+
+    try {
+      // 1. Sync specific records to Firebase RTDB (under products/id node)
+      for (const prod of updatedProductsList) {
+        // Keep original Firebase objects intact (maintain image references in Firebase products node)
+        const fbCurrent = products.find(orig => orig.id === prod.id) || {};
+        const fbUpdate = {
+          ...fbCurrent,
+          categoryId: prod.categoryId,
+          indications: prod.indications,
+          dosage: prod.dosage,
+          lbl: prod.lbl
+        };
+        await fbSetProduct(prod.id, fbUpdate);
+      }
+
+      // 2. Sync to Server API in batches
+      const chunkSize = 50;
+      for (let i = 0; i < updatedProductsList.length; i += chunkSize) {
+        const chunk = updatedProductsList.slice(i, i + chunkSize);
+        await bulkUpdateProducts(chunk);
+      }
+
+      alert(`Successfully auto-analyzed compositions and updated therapeutic details for ${updatedCount} products in the database!`);
+      
+      const freshProds = await getProducts();
+      if (freshProds) {
+        setProducts(freshProds);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.products = cleanProductsForClient(freshProds);
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    } catch (err) {
+      alert("Failed to save bulk auto-fill updates: " + err.message);
+    } finally {
+      setIsProcessingPackshots(false);
+    }
+  };
+
   // Handle Product Form Submit (Create & Update)
   const handleProductSubmit = async (e) => {
     e.preventDefault();
@@ -2498,6 +2798,14 @@ export default function AdminLayout() {
                   style={{ display: 'flex', alignItems: 'center', gap: '6px', background: showPackshotMatcher ? 'rgba(16,185,129,0.15)' : '', borderColor: showPackshotMatcher ? '#10b981' : '' }}
                 >
                   <Icons.Images size={16} /> {showPackshotMatcher ? 'Hide Matcher' : 'Auto-Match Packshots'}
+                </button>
+                <button
+                  className="btn-admin-secondary"
+                  onClick={handleBulkAutoFillDetails}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.1))', borderColor: '#3b82f6', color: '#2563eb' }}
+                  title="Automatically analyze compositions and fill therapeutic details for all products"
+                >
+                  <Icons.Sparkles size={16} /> Bulk Auto-Fill Details
                 </button>
                 <button
                   className="btn-admin-secondary"
