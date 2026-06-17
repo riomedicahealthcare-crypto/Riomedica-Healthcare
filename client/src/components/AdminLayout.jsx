@@ -875,6 +875,7 @@ export default function AdminLayout() {
 
       // Background sync to server API (failing silently if offline)
       const formData = new FormData();
+      formData.append('id', pId);
       formData.append('name', prodName);
       formData.append('categoryId', prodCategory);
       formData.append('composition', prodComposition);

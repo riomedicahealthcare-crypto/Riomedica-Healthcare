@@ -505,11 +505,11 @@ app.get('/api/image/:type/:id', async (req, res) => {
 
 
 app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
-  const { name, categoryId, composition, indications, dosage, lbl, videoUrl, isNewLaunch, mrp } = req.body;
+  const { id, name, categoryId, composition, indications, dosage, lbl, videoUrl, isNewLaunch, mrp } = req.body;
   if (!name) return res.status(400).json({ error: 'Product name is required' });
 
   const db = readDb();
-  const id = `prod_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`;
+  const prodId = id || `prod_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`;
 
   // Retrieve file paths
   let packshotUrl = '';
@@ -525,7 +525,7 @@ app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
   }
 
   const newProduct = {
-    id,
+    id: prodId,
     categoryId: categoryId || '',
     name,
     composition: composition || '',
@@ -541,6 +541,14 @@ app.post('/api/products', requireAdminAuth, productUploads, (req, res) => {
 
   db.products.push(newProduct);
   writeDb(db);
+
+  if (firebaseDb) {
+    const savedProduct = db.products.find(p => p.id === prodId);
+    if (savedProduct) {
+      set(ref(firebaseDb, `products/${prodId}`), savedProduct).catch(() => {});
+    }
+  }
+
   res.status(201).json(newProduct);
 });
 
@@ -589,6 +597,12 @@ app.put('/api/products/:id', requireAdminAuth, productUploads, (req, res) => {
 
   db.products[productIndex] = updatedProduct;
   writeDb(db);
+
+  if (firebaseDb) {
+    const savedProduct = db.products[productIndex];
+    set(ref(firebaseDb, `products/${req.params.id}`), savedProduct).catch(() => {});
+  }
+
   res.json(updatedProduct);
 });
 
@@ -605,10 +619,14 @@ app.post('/api/products/bulk-update', requireAdminAuth, (req, res) => {
     const matched = products.find(u => u.id === p.id);
     if (matched) {
       updatedCount++;
-      return {
+      const updatedItem = {
         ...p,
         ...matched
       };
+      if (firebaseDb) {
+        set(ref(firebaseDb, `products/${p.id}`), updatedItem).catch(() => {});
+      }
+      return updatedItem;
     }
     return p;
   });
@@ -631,6 +649,12 @@ app.delete('/api/products/:id', requireAdminAuth, (req, res) => {
   }));
 
   writeDb(db);
+
+  if (firebaseDb) {
+    remove(ref(firebaseDb, `products/${req.params.id}`)).catch(() => {});
+    remove(ref(firebaseDb, `packshots/${req.params.id}`)).catch(() => {});
+  }
+
   res.json({ message: 'Product deleted successfully' });
 });
 
