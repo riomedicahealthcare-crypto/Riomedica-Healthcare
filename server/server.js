@@ -151,6 +151,13 @@ const fileToDataUrl = (file) => {
   }
 };
 
+const ensureArray = (val) => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'object') return Object.values(val);
+  return [];
+};
+
 // Database helper functions
 const readDb = () => {
   try {
@@ -166,6 +173,14 @@ const readDb = () => {
       };
       fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
     }
+    db.categories = ensureArray(db.categories);
+    db.products = ensureArray(db.products);
+    db.collections = ensureArray(db.collections);
+    db.offers = ensureArray(db.offers);
+    db.registrations = ensureArray(db.registrations);
+    db.mrs = ensureArray(db.mrs);
+    db.doctorVisits = ensureArray(db.doctorVisits);
+    db.orders = ensureArray(db.orders);
     return db;
   } catch (err) {
     console.error("Error reading database file, returning default structure", err);
@@ -175,6 +190,9 @@ const readDb = () => {
       collections: [], 
       offers: [], 
       registrations: [],
+      mrs: [],
+      doctorVisits: [],
+      orders: [],
       admin: {
         username: "admin",
         password: "",
@@ -230,26 +248,27 @@ const base64ToFile = (base64Str, prefix, id, extension = 'png') => {
 const processDbImagesInPlace = (db) => {
   if (!db) return;
   
+  db.categories = ensureArray(db.categories);
+  db.products = ensureArray(db.products);
+  db.banners = ensureArray(db.banners);
+  db.registrations = ensureArray(db.registrations);
+
   const toUrl = (base64Str, prefix, id) => {
     if (!base64Str) return '';
     if (!base64Str.startsWith('data:')) return base64Str;
     return base64ToFile(base64Str, prefix, id);
   };
 
-  if (Array.isArray(db.categories)) {
-    db.categories.forEach(cat => {
-      cat.icon = toUrl(cat.icon, 'category', cat.id);
-    });
-  }
+  db.categories.forEach(cat => {
+    cat.icon = toUrl(cat.icon, 'category', cat.id);
+  });
 
-  if (Array.isArray(db.products)) {
-    db.products.forEach(p => {
-      p.packshot = toUrl(p.packshot, 'packshot', p.id);
-      if (Array.isArray(p.visualAids)) {
-        p.visualAids = p.visualAids.map((aid, idx) => toUrl(aid, 'visualaid', `${p.id}_${idx}`));
-      }
-    });
-  }
+  db.products.forEach(p => {
+    p.packshot = toUrl(p.packshot, 'packshot', p.id);
+    if (Array.isArray(p.visualAids)) {
+      p.visualAids = p.visualAids.map((aid, idx) => toUrl(aid, 'visualaid', `${p.id}_${idx}`));
+    }
+  });
 
   if (db.branding) {
     db.branding.logo = toUrl(db.branding.logo, 'branding', 'logo');
@@ -257,19 +276,15 @@ const processDbImagesInPlace = (db) => {
     db.branding.topRightBadge = toUrl(db.branding.topRightBadge, 'branding', 'topRightBadge');
   }
 
-  if (Array.isArray(db.banners)) {
-    db.banners.forEach(b => {
-      b.imageUrl = toUrl(b.imageUrl, 'banner', b.id);
-    });
-  }
+  db.banners.forEach(b => {
+    b.imageUrl = toUrl(b.imageUrl, 'banner', b.id);
+  });
 
-  if (Array.isArray(db.registrations)) {
-    db.registrations.forEach(r => {
-      r.drugLicenceUrl = toUrl(r.drugLicenceUrl, 'reg_licence', r.id);
-      r.gstUrl = toUrl(r.gstUrl, 'reg_gst', r.id);
-      r.panUrl = toUrl(r.panUrl, 'reg_pan', r.id);
-    });
-  }
+  db.registrations.forEach(r => {
+    r.drugLicenceUrl = toUrl(r.drugLicenceUrl, 'reg_licence', r.id);
+    r.gstUrl = toUrl(r.gstUrl, 'reg_gst', r.id);
+    r.panUrl = toUrl(r.panUrl, 'reg_pan', r.id);
+  });
 };
 
 const rebuildUploadsFromDb = (db) => {
