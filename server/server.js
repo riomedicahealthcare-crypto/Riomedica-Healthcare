@@ -1618,12 +1618,14 @@ app.post('/api/otp/send-email-otp', async (req, res) => {
 
   const mailRes = await sendOtpMail(email, otp, type || 'login');
 
+  if (!mailRes.success) {
+    delete activeOtps.email[key];
+    return res.status(500).json({ error: mailRes.error || 'Failed to send verification email. Please verify SMTP setup.' });
+  }
+
   res.json({ 
     message: 'Verification code sent successfully', 
-    mockOtp: otp, 
-    email,
-    isMock: mailRes.mock,
-    error: mailRes.error || null
+    email
   });
 });
 
@@ -1730,12 +1732,14 @@ app.post('/api/otp/send-email', async (req, res) => {
 
   const mailRes = await sendOtpMail(user.email, otp, 'register');
 
+  if (!mailRes.success) {
+    delete activeOtps.email[key];
+    return res.status(500).json({ error: mailRes.error || 'Failed to send verification email. Please verify SMTP setup.' });
+  }
+
   res.json({ 
     message: 'OTP sent to registered email address', 
-    mockOtp: otp, 
-    email: user.email,
-    isMock: mailRes.mock,
-    error: mailRes.error || null
+    email: user.email
   });
 });
 
