@@ -221,6 +221,7 @@ export const fbDeleteMROffer = (id) => remove(ref(db, `mr_offers/${id}`));
 // ─── SETTINGS ────────────────────────────────────────────────────────────────
 export const fbGetSettings = () => safeGet('settings');
 export const fbSetSettings = (settings) => safeSet('settings', settings);
+export const fbGetAdmin = () => safeGet('admin');
 
 // ─── FIREBASE OTP STORAGE & VERIFICATION ─────────────────────────────────────
 
