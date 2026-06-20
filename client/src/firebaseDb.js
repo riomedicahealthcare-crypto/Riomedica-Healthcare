@@ -68,6 +68,9 @@ export const subscribeToOrders     = (cb) => subscribeToPath('orders',     (v) =
 export const subscribeToUsers      = (cb) => subscribeToPath('users',      (v) => cb(toArray(v)));
 export const subscribeToMRs        = (cb) => subscribeToPath('mrs',        (v) => cb(toArray(v)));
 export const subscribeToRegistrations = (cb) => subscribeToPath('registrations', (v) => cb(toArray(v)));
+export const subscribeToCollections   = (cb) => subscribeToPath('collections',   (v) => cb(toArray(v)));
+export const subscribeToDoctorVisits  = (cb) => subscribeToPath('doctor_visits',  (v) => cb(toArray(v)));
+export const subscribeToMROffers      = (cb) => subscribeToPath('mr_offers',      (v) => cb(toArray(v)));
 export const subscribeToConnection = (cb) => {
   const r = ref(db, '.info/connected');
   const handler = (snap) => {
@@ -192,6 +195,32 @@ export const syncAllToFirebase = async (data) => {
 };
 
 export const pullFullBackupFromFirebase = () => safeGet('backup');
+
+// ─── COLLECTIONS ─────────────────────────────────────────────────────────────
+export const fbGetCollections = () => safeGet('collections').then(toArray);
+export const fbSetCollection  = (id, coll) => safeSet(`collections/${id}`, coll);
+export const fbDeleteCollection = (id) => remove(ref(db, `collections/${id}`));
+
+// ─── DOCTOR VISITS ───────────────────────────────────────────────────────────
+export const fbGetDoctorVisits = () => safeGet('doctor_visits').then(toArray);
+export const fbAddDoctorVisit = async (visit) => {
+  const newRef = push(ref(db, 'doctor_visits'));
+  await set(newRef, { ...visit, id: newRef.key });
+  return newRef.key;
+};
+
+// ─── MR OFFERS ───────────────────────────────────────────────────────────────
+export const fbGetMROffers = () => safeGet('mr_offers').then(toArray);
+export const fbAddMROffer = async (offer) => {
+  const newRef = push(ref(db, 'mr_offers'));
+  await set(newRef, { ...offer, id: newRef.key });
+  return newRef.key;
+};
+export const fbDeleteMROffer = (id) => remove(ref(db, `mr_offers/${id}`));
+
+// ─── SETTINGS ────────────────────────────────────────────────────────────────
+export const fbGetSettings = () => safeGet('settings');
+export const fbSetSettings = (settings) => safeSet('settings', settings);
 
 // ─── FIREBASE OTP STORAGE & VERIFICATION ─────────────────────────────────────
 

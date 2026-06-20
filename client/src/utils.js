@@ -1,5 +1,21 @@
 // client/src/utils.js
-import { fbWriteOtp, fbDeleteOtp, fbVerifyOtp } from './firebaseDb';
+import {
+  fbWriteOtp, fbDeleteOtp, fbVerifyOtp,
+  fbGetProducts, fbSetProduct, fbSetProducts, fbDeleteProduct,
+  fbGetCategories, fbSetCategory, fbDeleteCategory,
+  fbGetOffers, fbSetOffer, fbDeleteOffer,
+  fbGetBanners, fbSetBanner, fbDeleteBanner,
+  fbGetBranding, fbSetBranding,
+  fbGetOrders, fbAddOrder, fbUpdateOrderStatus, fbDeleteOrder,
+  fbGetMRs, fbAddMR, fbDeleteMR,
+  fbGetRegistrations, fbSetRegistration, fbAddRegistration,
+  fbGetUsers, fbAddUser, fbUpdateUser, fbDeleteUser,
+  fbGetCollections, fbSetCollection, fbDeleteCollection,
+  fbGetDoctorVisits, fbAddDoctorVisit,
+  fbGetMROffers, fbAddMROffer, fbDeleteMROffer,
+  fbGetSettings, fbSetSettings,
+  fbLoginUser
+} from './firebaseDb';
 
 const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
@@ -1391,97 +1407,473 @@ function handleLocalFallback(url, options) {
 }
 
 // --- API EXPORTS ---
-export const getCategories = () => safeFetch(`${API_BASE}/categories`);
-export const addCategory = (category) => safeFetch(`${API_BASE}/categories`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(category)
-});
-export const deleteCategory = (id) => safeFetch(`${API_BASE}/categories/${id}`, {
-  method: 'DELETE'
-});
 
-export const getProducts = () => safeFetch(`${API_BASE}/products`);
-export const addProduct = (formData) => safeFetch(`${API_BASE}/products`, {
-  method: 'POST',
-  body: formData
-});
-export const updateProduct = (id, formData) => safeFetch(`${API_BASE}/products/${id}`, {
-  method: 'PUT',
-  body: formData
-});
-export const bulkUpdateProducts = (products) => safeFetch(`${API_BASE}/products/bulk-update`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ products })
-});
-export const deleteProduct = (id) => safeFetch(`${API_BASE}/products/${id}`, {
-  method: 'DELETE'
-});
-export const resetProducts = () => safeFetch(`${API_BASE}/products/reset`, {
-  method: 'POST'
-});
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+  });
+};
 
-export const getCollections = () => safeFetch(`${API_BASE}/collections`);
-export const createCollection = (collection) => safeFetch(`${API_BASE}/collections`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(collection)
-});
-export const updateCollection = (id, collection) => safeFetch(`${API_BASE}/collections/${id}`, {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(collection)
-});
-export const deleteCollection = (id) => safeFetch(`${API_BASE}/collections/${id}`, {
-  method: 'DELETE'
-});
+export const getCategories = async () => {
+  const cats = await fbGetCategories();
+  return cats && cats.length > 0 ? cats : [];
+};
 
-export const getOffers = () => safeFetch(`${API_BASE}/offers`);
-export const addOffer = (formData) => safeFetch(`${API_BASE}/offers`, {
-  method: 'POST',
-  body: formData
-});
-export const deleteOffer = (id) => safeFetch(`${API_BASE}/offers/${id}`, {
-  method: 'DELETE'
-});
+export const addCategory = async (category) => {
+  const id = category.id || category.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+  const cleanCat = { ...category, id };
+  await fbSetCategory(id, cleanCat);
+  safeFetch(`${API_BASE}/categories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanCat)
+  }).catch(() => {});
+  return cleanCat;
+};
 
-export const registerUser = (formData) => safeFetch(`${API_BASE}/register`, {
-  method: 'POST',
-  body: formData
-});
-export const getRegistrations = () => safeFetch(`${API_BASE}/registrations`);
-export const approveRegistration = (id, credentials) => safeFetch(`${API_BASE}/registrations/${id}/approve`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(credentials)
-});
-export const denyRegistration = (id) => safeFetch(`${API_BASE}/registrations/${id}/deny`, {
-  method: 'POST'
-});
-export const terminateFranchisePartner = (id) => safeFetch(`${API_BASE}/registrations/${id}`, {
-  method: 'DELETE'
-});
-export const changeUserPassword = (userId, oldPassword, newPassword) => safeFetch(`${API_BASE}/user/change-password`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ userId, oldPassword, newPassword })
-});
-export const adminResetPassword = (userId, newPassword) => safeFetch(`${API_BASE}/admin/reset-password`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ userId, newPassword })
-});
-export const resetMRPassword = (mrId, newPassword) => safeFetch(`${API_BASE}/mrs/reset-password`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ mrId, newPassword })
-});
-export const loginUser = (credentials) => safeFetch(`${API_BASE}/login`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(credentials)
-});
+export const deleteCategory = async (id) => {
+  await fbDeleteCategory(id);
+  safeFetch(`${API_BASE}/categories/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'Category deleted successfully' };
+};
+
+export const getProducts = async () => {
+  const prods = await fbGetProducts();
+  return prods && prods.length > 0 ? prods : [];
+};
+
+export const addProduct = async (formData) => {
+  let productData = {};
+  if (formData instanceof FormData) {
+    const id = formData.get('id') || 'prod_' + Math.random().toString(36).substr(2, 9);
+    
+    let packshotBase64 = '';
+    const packshotFile = formData.get('packshot');
+    if (packshotFile && packshotFile instanceof File && packshotFile.name) {
+      packshotBase64 = await fileToBase64(packshotFile);
+    } else {
+      packshotBase64 = formData.get('packshot') || '';
+    }
+
+    let visualAidsBase64s = [];
+    const visualAidsFiles = formData.getAll('visualAids');
+    if (visualAidsFiles && visualAidsFiles.length > 0) {
+      visualAidsBase64s = await Promise.all(
+        visualAidsFiles.map(async (file) => {
+          if (file instanceof File && file.name) {
+            return await fileToBase64(file);
+          }
+          return file;
+        })
+      );
+    }
+
+    productData = {
+      id,
+      name: formData.get('name'),
+      categoryId: formData.get('categoryId') || '',
+      composition: formData.get('composition') || '',
+      indications: formData.get('indications') || '',
+      dosage: formData.get('dosage') || '',
+      lbl: formData.get('lbl') || '',
+      videoUrl: formData.get('videoUrl') || '',
+      isNewLaunch: formData.get('isNewLaunch') === 'true',
+      mrp: formData.get('mrp') || '',
+      packshot: packshotBase64,
+      visualAids: visualAidsBase64s
+    };
+  } else {
+    productData = formData;
+  }
+
+  await fbSetProduct(productData.id, productData);
+  
+  if (formData instanceof FormData) {
+    safeFetch(`${API_BASE}/products`, { method: 'POST', body: formData }).catch(() => {});
+  } else {
+    safeFetch(`${API_BASE}/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData)
+    }).catch(() => {});
+  }
+  return productData;
+};
+
+export const updateProduct = async (id, formData) => {
+  let productData = {};
+  if (formData instanceof FormData) {
+    let packshotBase64 = '';
+    const packshotFile = formData.get('packshot');
+    if (packshotFile && packshotFile instanceof File && packshotFile.name) {
+      packshotBase64 = await fileToBase64(packshotFile);
+    } else {
+      packshotBase64 = formData.get('packshot') || '';
+    }
+
+    let visualAidsBase64s = [];
+    const visualAidsFiles = formData.getAll('visualAids');
+    if (visualAidsFiles && visualAidsFiles.length > 0) {
+      visualAidsBase64s = await Promise.all(
+        visualAidsFiles.map(async (file) => {
+          if (file instanceof File && file.name) {
+            return await fileToBase64(file);
+          }
+          return file;
+        })
+      );
+    }
+
+    productData = {
+      id,
+      name: formData.get('name'),
+      categoryId: formData.get('categoryId') || '',
+      composition: formData.get('composition') || '',
+      indications: formData.get('indications') || '',
+      dosage: formData.get('dosage') || '',
+      lbl: formData.get('lbl') || '',
+      videoUrl: formData.get('videoUrl') || '',
+      isNewLaunch: formData.get('isNewLaunch') === 'true',
+      mrp: formData.get('mrp') || '',
+      packshot: packshotBase64,
+      visualAids: visualAidsBase64s
+    };
+  } else {
+    productData = { ...formData, id };
+  }
+
+  await fbSetProduct(id, productData);
+
+  if (formData instanceof FormData) {
+    safeFetch(`${API_BASE}/products/${id}`, { method: 'PUT', body: formData }).catch(() => {});
+  } else {
+    safeFetch(`${API_BASE}/products/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData)
+    }).catch(() => {});
+  }
+  return productData;
+};
+
+export const bulkUpdateProducts = async (products) => {
+  if (Array.isArray(products)) {
+    for (const p of products) {
+      await fbSetProduct(p.id, p);
+    }
+  }
+  safeFetch(`${API_BASE}/products/bulk-update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ products })
+  }).catch(() => {});
+  return { success: true };
+};
+
+export const deleteProduct = async (id) => {
+  await fbDeleteProduct(id);
+  safeFetch(`${API_BASE}/products/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'Product deleted successfully' };
+};
+
+export const resetProducts = async () => {
+  await fbSetProducts([]);
+  safeFetch(`${API_BASE}/products/reset`, { method: 'POST' }).catch(() => {});
+  return { success: true };
+};
+
+export const getCollections = async () => {
+  const colls = await fbGetCollections();
+  return colls && colls.length > 0 ? colls : [];
+};
+
+export const createCollection = async (collection) => {
+  const id = collection.id || 'coll_' + Math.random().toString(36).substr(2, 9);
+  const cleanColl = { ...collection, id };
+  await fbSetCollection(id, cleanColl);
+  safeFetch(`${API_BASE}/collections`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanColl)
+  }).catch(() => {});
+  return cleanColl;
+};
+
+export const updateCollection = async (id, collection) => {
+  const cleanColl = { ...collection, id };
+  await fbSetCollection(id, cleanColl);
+  safeFetch(`${API_BASE}/collections/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanColl)
+  }).catch(() => {});
+  return cleanColl;
+};
+
+export const deleteCollection = async (id) => {
+  await fbDeleteCollection(id);
+  safeFetch(`${API_BASE}/collections/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'Collection deleted successfully' };
+};
+
+export const getOffers = async () => {
+  const offs = await fbGetOffers();
+  return offs && offs.length > 0 ? offs : [];
+};
+
+export const addOffer = async (formData) => {
+  let offerData = {};
+  if (formData instanceof FormData) {
+    const id = formData.get('id') || 'offer_' + Math.random().toString(36).substr(2, 9);
+    let imageBase64 = '';
+    const imageFile = formData.get('image');
+    if (imageFile && imageFile instanceof File && imageFile.name) {
+      imageBase64 = await fileToBase64(imageFile);
+    } else {
+      imageBase64 = formData.get('image') || '';
+    }
+    offerData = {
+      id,
+      title: formData.get('title'),
+      description: formData.get('description'),
+      discount: formData.get('discount') || '',
+      productId: formData.get('productId') || '',
+      expiry: formData.get('expiry') || '',
+      imageUrl: imageBase64
+    };
+  } else {
+    offerData = formData;
+  }
+  await fbSetOffer(offerData.id, offerData);
+  if (formData instanceof FormData) {
+    safeFetch(`${API_BASE}/offers`, { method: 'POST', body: formData }).catch(() => {});
+  } else {
+    safeFetch(`${API_BASE}/offers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(offerData)
+    }).catch(() => {});
+  }
+  return offerData;
+};
+
+export const deleteOffer = async (id) => {
+  await fbDeleteOffer(id);
+  safeFetch(`${API_BASE}/offers/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'Offer deleted successfully' };
+};
+
+export const registerUser = async (formData) => {
+  let regData = {};
+  if (formData instanceof FormData) {
+    const id = 'reg_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    
+    let drugLicenceBase64 = '';
+    const dlFile = formData.get('drugLicence');
+    if (dlFile && dlFile instanceof File && dlFile.name) {
+      drugLicenceBase64 = await fileToBase64(dlFile);
+    }
+    
+    let gstBase64 = '';
+    const gstFile = formData.get('gst');
+    if (gstFile && gstFile instanceof File && gstFile.name) {
+      gstBase64 = await fileToBase64(gstFile);
+    }
+
+    let panBase64 = '';
+    const panFile = formData.get('pan');
+    if (panFile && panFile instanceof File && panFile.name) {
+      panBase64 = await fileToBase64(panFile);
+    }
+
+    regData = {
+      id,
+      shopName: formData.get('shopName'),
+      ownerName: formData.get('ownerName'),
+      email: formData.get('email'),
+      mobile: formData.get('mobile'),
+      address: formData.get('address'),
+      drugLicenceNo: formData.get('drugLicenceNo'),
+      gstNo: formData.get('gstNo'),
+      panNo: formData.get('panNo'),
+      drugLicenceUrl: drugLicenceBase64,
+      gstUrl: gstBase64,
+      panUrl: panBase64,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      loginDetails: {
+        username: formData.get('username') || formData.get('mobile'),
+        password: formData.get('password')
+      }
+    };
+  } else {
+    regData = formData;
+  }
+  await fbSetRegistration(regData.id, regData);
+  
+  if (formData instanceof FormData) {
+    safeFetch(`${API_BASE}/register`, { method: 'POST', body: formData }).catch(() => {});
+  } else {
+    safeFetch(`${API_BASE}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(regData)
+    }).catch(() => {});
+  }
+  return regData;
+};
+
+export const getRegistrations = async () => {
+  const regs = await fbGetRegistrations();
+  return regs && regs.length > 0 ? regs : [];
+};
+
+export const approveRegistration = async (id, credentials) => {
+  const regs = await fbGetRegistrations();
+  const reg = regs.find(r => r.id === id);
+  if (!reg) throw new Error('Registration not found');
+
+  const approvedReg = { ...reg, status: 'approved' };
+  await fbSetRegistration(id, approvedReg);
+
+  const user = {
+    id,
+    username: reg.loginDetails.username,
+    password: reg.loginDetails.password,
+    name: reg.ownerName,
+    email: reg.email,
+    mobile: reg.mobile,
+    role: 'retailer',
+    status: 'approved',
+    createdAt: new Date().toISOString()
+  };
+  
+  const currentUsers = await fbGetUsers();
+  await fbSetUsers([...currentUsers.filter(u => u.id !== id), user]);
+
+  safeFetch(`${API_BASE}/registrations/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials)
+  }).catch(() => {});
+
+  return approvedReg;
+};
+
+export const denyRegistration = async (id) => {
+  const regs = await fbGetRegistrations();
+  const reg = regs.find(r => r.id === id);
+  if (!reg) throw new Error('Registration not found');
+
+  const deniedReg = { ...reg, status: 'denied' };
+  await fbSetRegistration(id, deniedReg);
+
+  safeFetch(`${API_BASE}/registrations/${id}/deny`, { method: 'POST' }).catch(() => {});
+  return deniedReg;
+};
+
+export const terminateFranchisePartner = async (id) => {
+  await fbSetRegistration(id, null);
+  await fbDeleteUser(id);
+  safeFetch(`${API_BASE}/registrations/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { success: true };
+};
+
+export const changeUserPassword = async (userId, oldPassword, newPassword) => {
+  const users = await fbGetUsers();
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex !== -1) {
+    users[userIndex].password = newPassword;
+    await fbSetUsers(users);
+  }
+  
+  const regs = await fbGetRegistrations();
+  const regIndex = regs.findIndex(r => r.id === userId);
+  if (regIndex !== -1) {
+    regs[regIndex].loginDetails.password = newPassword;
+    await fbSetRegistration(userId, regs[regIndex]);
+  }
+
+  return safeFetch(`${API_BASE}/user/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, oldPassword, newPassword })
+  });
+};
+
+export const adminResetPassword = async (userId, newPassword) => {
+  const users = await fbGetUsers();
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex !== -1) {
+    users[userIndex].password = newPassword;
+    await fbSetUsers(users);
+  }
+
+  const regs = await fbGetRegistrations();
+  const regIndex = regs.findIndex(r => r.id === userId);
+  if (regIndex !== -1) {
+    regs[regIndex].loginDetails.password = newPassword;
+    await fbSetRegistration(userId, regs[regIndex]);
+  }
+
+  safeFetch(`${API_BASE}/admin/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, newPassword })
+  }).catch(() => {});
+
+  return { success: true };
+};
+
+export const resetMRPassword = async (mrId, newPassword) => {
+  const mrs = await fbGetMRs();
+  const mrIndex = mrs.findIndex(m => m.id === mrId);
+  if (mrIndex !== -1) {
+    mrs[mrIndex].loginDetails.password = newPassword;
+    await fbSetMRs(mrs);
+  }
+
+  safeFetch(`${API_BASE}/mrs/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mrId, newPassword })
+  }).catch(() => {});
+
+  return { success: true };
+};
+
+export const loginUser = async (credentials) => {
+  try {
+    return await safeFetch(`${API_BASE}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials)
+    });
+  } catch (err) {
+    if (err.message && (err.message.includes('pending') || err.message.includes('Invalid credentials'))) {
+      throw err;
+    }
+    const user = await fbLoginUser(credentials.username, credentials.password);
+    if (user) {
+      return {
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          name: user.name,
+          email: user.email,
+          mobile: user.mobile
+        },
+        token: 'firebase_mock_token_' + Math.random().toString(36).substr(2)
+      };
+    }
+    throw new Error(err.message || 'Invalid credentials or authentication server offline');
+  }
+};
 
 export const sendMobileOtp = async (mobile) => {
   const res = await safeFetch(`${API_BASE}/otp/send-mobile`, {
@@ -1562,54 +1954,180 @@ export const verifyEmailReset = async (usernameOrEmail, otp, newPassword) => {
   }
 };
 
-export const getBranding = () => safeFetch(`${API_BASE}/branding`);
-export const updateBranding = (formData) => safeFetch(`${API_BASE}/branding`, {
-  method: 'POST',
-  body: formData
-});
+export const getBranding = async () => {
+  const brand = await fbGetBranding();
+  return brand || { companyName: 'RIOMEDICA', tagline: 'Healthcare', logo: '' };
+};
 
-export const getSettings = () => safeFetch(`${API_BASE}/settings`);
-export const updateSettings = (settings) => safeFetch(`${API_BASE}/settings`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(settings)
-});
+export const updateBranding = async (formData) => {
+  let brandingData = {};
+  if (formData instanceof FormData) {
+    let logoBase64 = '';
+    const logoFile = formData.get('logo');
+    if (logoFile && logoFile instanceof File && logoFile.name) {
+      logoBase64 = await fileToBase64(logoFile);
+    } else {
+      logoBase64 = formData.get('logo') || '';
+    }
 
-export const getBanners = () => safeFetch(`${API_BASE}/banners`);
-export const addBanner = (formData) => safeFetch(`${API_BASE}/banners`, {
-  method: 'POST',
-  body: formData
-});
-export const deleteBanner = (id) => safeFetch(`${API_BASE}/banners/${id}`, {
-  method: 'DELETE'
-});
+    let landingBgBase64 = '';
+    const landingBgFile = formData.get('landingBgImage');
+    if (landingBgFile && landingBgFile instanceof File && landingBgFile.name) {
+      landingBgBase64 = await fileToBase64(landingBgFile);
+    } else {
+      landingBgBase64 = formData.get('landingBgImage') || '';
+    }
 
-export const getMRs = () => safeFetch(`${API_BASE}/mrs`);
-export const addMR = (mrData) => safeFetch(`${API_BASE}/mrs`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(mrData)
-});
-export const deleteMR = (id) => safeFetch(`${API_BASE}/mrs/${id}`, {
-  method: 'DELETE'
-});
+    let badgeBase64 = '';
+    const badgeFile = formData.get('topRightBadge');
+    if (badgeFile && badgeFile instanceof File && badgeFile.name) {
+      badgeBase64 = await fileToBase64(badgeFile);
+    } else {
+      badgeBase64 = formData.get('topRightBadge') || '';
+    }
 
-export const getVisits = () => safeFetch(`${API_BASE}/visits`);
-export const addVisit = (visitData) => safeFetch(`${API_BASE}/visits`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(visitData)
-});
+    brandingData = {
+      companyName: formData.get('companyName'),
+      tagline: formData.get('tagline'),
+      landingTitle: formData.get('landingTitle'),
+      landingDescription: formData.get('landingDescription'),
+      logo: logoBase64,
+      landingBgImage: landingBgBase64,
+      topRightBadge: badgeBase64
+    };
+  } else {
+    brandingData = formData;
+  }
+  await fbSetBranding(brandingData);
+  if (formData instanceof FormData) {
+    safeFetch(`${API_BASE}/branding`, { method: 'POST', body: formData }).catch(() => {});
+  } else {
+    safeFetch(`${API_BASE}/branding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(brandingData)
+    }).catch(() => {});
+  }
+  return brandingData;
+};
 
-export const getMROffers = () => safeFetch(`${API_BASE}/mr-offers`);
-export const addMROffer = (offerData) => safeFetch(`${API_BASE}/mr-offers`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(offerData)
-});
-export const deleteMROffer = (id) => safeFetch(`${API_BASE}/mr-offers/${id}`, {
-  method: 'DELETE'
-});
+export const getSettings = async () => {
+  const settings = await fbGetSettings();
+  return settings || { geminiApiKey: '' };
+};
+
+export const updateSettings = async (settings) => {
+  await fbSetSettings(settings);
+  safeFetch(`${API_BASE}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  }).catch(() => {});
+  return settings;
+};
+
+export const getBanners = async () => {
+  const ban = await fbGetBanners();
+  return ban && ban.length > 0 ? ban : [];
+};
+
+export const addBanner = async (formData) => {
+  let bannerData = {};
+  if (formData instanceof FormData) {
+    const id = 'banner_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    let imageBase64 = '';
+    const imageFile = formData.get('image');
+    if (imageFile && imageFile instanceof File && imageFile.name) {
+      imageBase64 = await fileToBase64(imageFile);
+    }
+    bannerData = {
+      id,
+      title: formData.get('title') || '',
+      linkUrl: formData.get('linkUrl') || '',
+      imageUrl: imageBase64
+    };
+  } else {
+    bannerData = formData;
+  }
+  await fbSetBanner(bannerData.id, bannerData);
+  if (formData instanceof FormData) {
+    safeFetch(`${API_BASE}/banners`, { method: 'POST', body: formData }).catch(() => {});
+  } else {
+    safeFetch(`${API_BASE}/banners`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bannerData)
+    }).catch(() => {});
+  }
+  return bannerData;
+};
+
+export const deleteBanner = async (id) => {
+  await fbDeleteBanner(id);
+  safeFetch(`${API_BASE}/banners/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'Banner deleted successfully' };
+};
+
+export const getMRs = async () => {
+  const team = await fbGetMRs();
+  return team && team.length > 0 ? team : [];
+};
+
+export const addMR = async (mrData) => {
+  const id = mrData.id || 'mr_' + Math.random().toString(36).substr(2, 9);
+  const cleanMr = { ...mrData, id };
+  await fbAddMR(cleanMr);
+  safeFetch(`${API_BASE}/mrs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanMr)
+  }).catch(() => {});
+  return cleanMr;
+};
+
+export const deleteMR = async (id) => {
+  await fbDeleteMR(id);
+  safeFetch(`${API_BASE}/mrs/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'MR deleted successfully' };
+};
+
+export const getVisits = async () => {
+  const visits = await fbGetDoctorVisits();
+  return visits && visits.length > 0 ? visits : [];
+};
+
+export const addVisit = async (visitData) => {
+  const key = await fbAddDoctorVisit(visitData);
+  const cleanVisit = { ...visitData, id: key };
+  safeFetch(`${API_BASE}/visits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanVisit)
+  }).catch(() => {});
+  return cleanVisit;
+};
+
+export const getMROffers = async () => {
+  const teamOffers = await fbGetMROffers();
+  return teamOffers && teamOffers.length > 0 ? teamOffers : [];
+};
+
+export const addMROffer = async (offerData) => {
+  const key = await fbAddMROffer(offerData);
+  const cleanOffer = { ...offerData, id: key };
+  safeFetch(`${API_BASE}/mr-offers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanOffer)
+  }).catch(() => {});
+  return cleanOffer;
+};
+
+export const deleteMROffer = async (id) => {
+  await fbDeleteMROffer(id);
+  safeFetch(`${API_BASE}/mr-offers/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { message: 'MR offer deleted successfully' };
+};
 
 export const sendAiMessage = (message, history) => safeFetch(`${API_BASE}/ai/chat`, {
   method: 'POST',
@@ -1617,20 +2135,37 @@ export const sendAiMessage = (message, history) => safeFetch(`${API_BASE}/ai/cha
   body: JSON.stringify({ message, history })
 });
 
-export const getOrders = () => safeFetch(`${API_BASE}/orders`);
-export const addOrder = (orderData) => safeFetch(`${API_BASE}/orders`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(orderData)
-});
-export const updateOrderStatus = (id, status) => safeFetch(`${API_BASE}/orders/${id}/status`, {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ status })
-});
-export const deleteOrder = (id) => safeFetch(`${API_BASE}/orders/${id}`, {
-  method: 'DELETE'
-});
+export const getOrders = async () => {
+  const ords = await fbGetOrders();
+  return ords && ords.length > 0 ? ords : [];
+};
+
+export const addOrder = async (orderData) => {
+  const key = await fbAddOrder(orderData);
+  const cleanOrder = { ...orderData, id: key, firebaseId: key };
+  safeFetch(`${API_BASE}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanOrder)
+  }).catch(() => {});
+  return cleanOrder;
+};
+
+export const updateOrderStatus = async (id, status) => {
+  await fbUpdateOrderStatus(id, status);
+  safeFetch(`${API_BASE}/orders/${id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  }).catch(() => {});
+  return { success: true };
+};
+
+export const deleteOrder = async (id) => {
+  await fbDeleteOrder(id);
+  safeFetch(`${API_BASE}/orders/${id}`, { method: 'DELETE' }).catch(() => {});
+  return { success: true };
+};
 
 // --- BULK PRODUCT IMPORT ---
 export const bulkImportProducts = async (formData) => {

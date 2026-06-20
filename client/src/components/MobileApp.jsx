@@ -16,7 +16,8 @@ import {
   syncAllToFirebase, pullFullBackupFromFirebase,
   subscribeToProducts, subscribeToCategories, subscribeToOffers,
   subscribeToBanners, subscribeToBranding, subscribeToOrders,
-  subscribeToUsers, fbAddOrder, fbSetRegistration, subscribeToConnection
+  subscribeToUsers, fbAddOrder, fbSetRegistration, subscribeToConnection,
+  subscribeToCollections, subscribeToDoctorVisits, subscribeToMROffers
 } from '../firebaseDb';
 import CanvasDraw from './CanvasDraw';
 
@@ -1391,6 +1392,39 @@ export default function MobileApp() {
       } 
     });
 
+    const unsubCollections = subscribeToCollections((data) => {
+      if (data) {
+        setCollections(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.collections = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubDoctorVisits = subscribeToDoctorVisits((data) => {
+      if (data) {
+        setDoctorVisits(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.doctorVisits = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
+    const unsubMROffers = subscribeToMROffers((data) => {
+      if (data) {
+        setMrOffers(data);
+        try {
+          const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+          db.mrOffers = data;
+          localStorage.setItem('riomedica_db', JSON.stringify(db));
+        } catch (_) {}
+      }
+    });
+
     const unsubConnection = subscribeToConnection((isConnected) => {
       setIsFirebaseConnected(isConnected);
     });
@@ -1419,6 +1453,9 @@ export default function MobileApp() {
       unsubBranding();
       unsubOrders();
       unsubUsers();
+      unsubCollections();
+      unsubDoctorVisits();
+      unsubMROffers();
       unsubConnection();
       clearTimeout(fallbackTimer);
     };

@@ -1170,10 +1170,6 @@ export default function AdminLayout() {
         visualAids: visualAidsBase64s
       };
 
-      // Write directly to Firebase RTDB
-      await fbSetProduct(pId, productData);
-
-      // Background sync to server API (failing silently if offline)
       const formData = new FormData();
       formData.append('id', pId);
       formData.append('name', prodName);
@@ -1195,9 +1191,9 @@ export default function AdminLayout() {
       }
       if (editingProduct) {
         formData.append('keepExistingAids', keepExistingAids.toString());
-        updateProduct(editingProduct.id, formData).catch(() => {});
+        await updateProduct(editingProduct.id, formData);
       } else {
-        addProduct(formData).catch(() => {});
+        await addProduct(formData);
       }
 
       setIsProductModalOpen(false);
@@ -1212,8 +1208,7 @@ export default function AdminLayout() {
   const handleDeleteProduct = async (id) => {
     if (confirm("Are you sure you want to delete this product?")) {
       try {
-        await fbDeleteProduct(id);
-        deleteProduct(id).catch(() => {});
+        await deleteProduct(id);
       } catch (err) {
         alert("Failed to delete product: " + err.message);
       }
@@ -2055,8 +2050,7 @@ export default function AdminLayout() {
         icon: newCatIcon
       };
       
-      await fbSetCategory(cId, categoryData);
-      addCategory(categoryData).catch(() => {});
+      await addCategory(categoryData);
       
       setNewCatName('');
       setNewCatDesc('');
@@ -2070,8 +2064,7 @@ export default function AdminLayout() {
   const handleDeleteCategory = async (id) => {
     if (confirm("Deleting a category will unassign its products. Proceed?")) {
       try {
-        await fbDeleteCategory(id);
-        deleteCategory(id).catch(() => {});
+        await deleteCategory(id);
       } catch (err) {
         alert("Failed to delete category: " + err.message);
       }
@@ -2107,17 +2100,104 @@ export default function AdminLayout() {
     reader.readAsBinaryString(file);
   };
 
-  // Upload to server for actual import
+  // Upload to server for actual import (Redirected to Client-side direct Firebase writes)
   const handleBulkImport = async () => {
     if (!excelFile) return;
     setIsImporting(true);
     setImportResult(null);
     try {
-      const fd = new FormData();
-      fd.append('file', excelFile);
-      const result = await bulkImportProducts(fd);
-      setImportResult(result);
-      await syncToFirebase(); // 🔥 Auto-sync to Firebase after bulk import
+      const reader = new FileReader();
+      const rows = await new Promise((resolve, reject) => {
+        reader.onload = (e) => {
+          try {
+            const workbook = XLSX.read(e.target.result, { type: 'binary' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const parsedRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+            resolve(parsedRows);
+          } catch (err) {
+            reject(new Error('Failed to read Excel workbook structure.'));
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file.'));
+        reader.readAsBinaryString(excelFile);
+      });
+
+      if (!rows || rows.length === 0) {
+        throw new Error('The Excel file is empty or has no data rows.');
+      }
+
+      const inserted = [];
+      const errors = [];
+
+      for (let idx = 0; idx < rows.length; idx++) {
+        const row = rows[idx];
+        const rowNum = idx + 2; // 1-indexed + header row
+        const name = (row['Product Name'] || row['name'] || '').toString().trim();
+        if (!name) {
+          errors.push(`Row ${rowNum}: Missing product name.`);
+          continue;
+        }
+
+        // Map category name → id
+        const catNameRaw = (row['Category'] || row['categoryId'] || '').toString().trim();
+        let categoryId = '';
+        if (catNameRaw) {
+          const catSlug = catNameRaw.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          let matchedCat = categories.find(
+            c => c.name.toLowerCase() === catNameRaw.toLowerCase() || c.id === catSlug
+          );
+          if (!matchedCat) {
+            let icon = 'Activity';
+            const catNameLower = catNameRaw.toLowerCase();
+            if (catNameLower.includes('inject')) icon = 'Droplet';
+            else if (catNameLower.includes('dent') || catNameLower.includes('oral')) icon = 'Shield';
+            else if (catNameLower.includes('pain') || catNameLower.includes('analge') || catNameLower.includes('gel')) icon = 'Zap';
+            else if (catNameLower.includes('derm') || catNameLower.includes('skin') || catNameLower.includes('soap') || catNameLower.includes('cream')) icon = 'Heart';
+            else if (catNameLower.includes('cough') || catNameLower.includes('cold') || catNameLower.includes('syrup')) icon = 'Wind';
+            else if (catNameLower.includes('neuro') || catNameLower.includes('brain') || catNameLower.includes('psych')) icon = 'Brain';
+            else if (catNameLower.includes('eye') || catNameLower.includes('ophthal')) icon = 'Eye';
+
+            matchedCat = {
+              id: catSlug,
+              name: catNameRaw,
+              description: `Formulations belonging to the ${catNameRaw} therapeutic category.`,
+              icon
+            };
+            await addCategory(matchedCat);
+            categories.push(matchedCat); // Update in-memory categories list for duplicate checks
+          }
+          categoryId = matchedCat.id;
+        }
+
+        const id = `prod_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}_${idx}`;
+        const isNewLaunch = ['yes', 'true', '1', 'y'].includes(
+          (row['New Launch'] || row['isNewLaunch'] || '').toString().trim().toLowerCase()
+        );
+
+        const newProduct = {
+          id,
+          categoryId,
+          name,
+          composition: (row['Composition'] || row['composition'] || '').toString().trim(),
+          indications: (row['Indications'] || row['indications'] || '').toString().trim(),
+          dosage:      (row['Dosage'] || row['dosage'] || '').toString().trim(),
+          lbl:         (row['LBL'] || row['lbl'] || '').toString().trim(),
+          videoUrl:    (row['Video URL'] || row['videoUrl'] || '').toString().trim(),
+          packshot:    '',
+          visualAids:  [],
+          isNewLaunch,
+          mrp:         (row['MRP'] || row['mrp'] || '').toString().trim()
+        };
+
+        await addProduct(newProduct);
+        inserted.push(newProduct);
+      }
+
+      setImportResult({
+        message: `Bulk import complete. ${inserted.length} products added.`,
+        inserted: inserted.length,
+        errors
+      });
     } catch (err) {
       setImportResult({ error: err.message });
     } finally {
