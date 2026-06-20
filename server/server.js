@@ -326,21 +326,53 @@ const syncFromFirebaseOnStartup = async () => {
     return;
   }
 
-  console.log("[Firebase Sync] Fetching database backup from Firebase Realtime Database on startup...");
+  console.log("[Firebase Sync] Fetching database backup from Firebase Realtime Database node-by-node on startup...");
   try {
-    const snap = await get(ref(firebaseDb, '/'));
-    if (snap.exists()) {
-      const fbData = snap.val();
-      console.log("[Firebase Sync] Success! Found database backup on Firebase. Restoring local db.json...");
-      
-      fs.writeFileSync(dbPath, JSON.stringify(fbData, null, 2), 'utf8');
-      rebuildUploadsFromDb(fbData);
-      console.log("[Firebase Sync] Database and physical uploads restored successfully on startup!");
-    } else {
-      console.log("[Firebase Sync] No database backup found on Firebase. Using local db.json...");
-      const db = readDb();
-      rebuildUploadsFromDb(db);
+    const dbKeys = [
+      'categories',
+      'products',
+      'collections',
+      'offers',
+      'registrations',
+      'mrs',
+      'doctorVisits',
+      'orders',
+      'admin',
+      'settings'
+    ];
+
+    const fbData = {};
+
+    for (const key of dbKeys) {
+      try {
+        console.log(`[Firebase Sync] Fetching node: ${key}...`);
+        const snap = await get(ref(firebaseDb, key));
+        if (snap.exists()) {
+          fbData[key] = snap.val();
+        } else {
+          console.log(`[Firebase Sync] Node ${key} not found on Firebase. Using empty default.`);
+          if (key === 'settings' || key === 'admin') {
+            fbData[key] = {};
+          } else {
+            fbData[key] = [];
+          }
+        }
+      } catch (nodeErr) {
+        console.error(`[Firebase Sync] Failed to fetch node ${key}:`, nodeErr.message);
+        try {
+          const localDb = readDb();
+          fbData[key] = localDb[key] || (key === 'settings' || key === 'admin' ? {} : []);
+        } catch (e) {
+          fbData[key] = key === 'settings' || key === 'admin' ? {} : [];
+        }
+      }
     }
+
+    console.log("[Firebase Sync] Success! Found database backup nodes on Firebase. Restoring local db.json...");
+    fs.writeFileSync(dbPath, JSON.stringify(fbData, null, 2), 'utf8');
+    rebuildUploadsFromDb(fbData);
+    console.log("[Firebase Sync] Database and physical uploads restored successfully on startup!");
+
   } catch (err) {
     console.error("[Firebase Sync] Error restoring database from Firebase on startup:", err.message);
     try {
