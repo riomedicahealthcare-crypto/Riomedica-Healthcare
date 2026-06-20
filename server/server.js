@@ -1501,82 +1501,96 @@ const startFirebaseOtpListener = () => {
   console.log("[Firebase Server] Listening for active OTP requests on Firebase RTDB...");
   
   onValue(activeOtpsRef, async (snapshot) => {
-    if (!snapshot.exists()) return;
+    try {
+      if (!snapshot.exists()) return;
 
-    // Load active settings dynamically
-    const db = readDb();
-    const settings = db.settings || {};
-    const channel = settings.otpChannel || 'mock';
+      // Load active settings dynamically
+      const db = readDb();
+      const settings = db.settings || {};
+      const channel = settings.otpChannel || 'mock';
 
-    // If running on Render and channel is SMTP or Mock, we ignore it here
-    // to let local listeners process it.
-    if (process.env.RENDER === 'true' && (channel === 'smtp' || channel === 'mock')) {
-      return;
-    }
+      // If running on Render and channel is SMTP or Mock, we ignore it here
+      // to let local listeners process it.
+      if (process.env.RENDER === 'true' && (channel === 'smtp' || channel === 'mock')) {
+        return;
+      }
 
-    const data = snapshot.val();
-    
-    // Process email OTPs
-    if (data.email) {
-      for (const [cleanKey, record] of Object.entries(data.email)) {
-        if (record && record.isSent === false && record.originalKey && record.otp) {
-          console.log(`[Firebase Server] Found unsent email OTP request for ${record.originalKey}. Code: ${record.otp}`);
-          
-          // Mark as processing to prevent duplicate sends
-          await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { isSent: 'sending' });
-          
-          const mailRes = await sendOtpMail(record.originalKey, record.otp, record.type || 'login');
-          if (mailRes.success && !mailRes.mock) {
-            console.log(`[Firebase Server] Email sent successfully to ${record.originalKey}`);
-            await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { 
-              isSent: true, 
-              sentAt: new Date().toISOString() 
-            });
-          } else {
-            const status = mailRes.mock ? 'mocked' : 'failed';
-            console.error(`[Firebase Server] Failed to send email to ${record.originalKey} (status: ${status}):`, mailRes.error);
-            await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { 
-              isSent: status, 
-              error: mailRes.error || (mailRes.mock ? 'SMTP settings not configured' : 'SMTP Error') 
-            });
+      const data = snapshot.val();
+      
+      // Process email OTPs
+      if (data.email) {
+        for (const [cleanKey, record] of Object.entries(data.email)) {
+          if (record && record.isSent === false && record.originalKey && record.otp) {
+            console.log(`[Firebase Server] Found unsent email OTP request for ${record.originalKey}. Code: ${record.otp}`);
+            
+            try {
+              // Mark as processing to prevent duplicate sends
+              await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { isSent: 'sending' }).catch(() => {});
+              
+              const mailRes = await sendOtpMail(record.originalKey, record.otp, record.type || 'login');
+              if (mailRes.success && !mailRes.mock) {
+                console.log(`[Firebase Server] Email sent successfully to ${record.originalKey}`);
+                await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { 
+                  isSent: true, 
+                  sentAt: new Date().toISOString() 
+                }).catch(() => {});
+              } else {
+                const status = mailRes.mock ? 'mocked' : 'failed';
+                console.error(`[Firebase Server] Failed to send email to ${record.originalKey} (status: ${status}):`, mailRes.error);
+                await update(ref(firebaseDb, `active_otps/email/${cleanKey}`), { 
+                  isSent: status, 
+                  error: mailRes.error || (mailRes.mock ? 'SMTP settings not configured' : 'SMTP Error') 
+                }).catch(() => {});
+              }
+            } catch (innerErr) {
+              console.error(`[Firebase Server] Error processing email OTP for ${record.originalKey}:`, innerErr.message);
+            }
           }
         }
       }
-    }
 
-    // Process password reset email OTPs
-    if (data.email_reset) {
-      for (const [cleanKey, record] of Object.entries(data.email_reset)) {
-        if (record && record.isSent === false && record.originalKey && record.otp) {
-          console.log(`[Firebase Server] Found unsent password reset OTP request for ${record.originalKey}. Code: ${record.otp}`);
-          
-          // Mark as processing
-          await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { isSent: 'sending' });
-          
-          const mailRes = await sendOtpMail(record.originalKey, record.otp, 'register');
-          if (mailRes.success && !mailRes.mock) {
-            console.log(`[Firebase Server] Reset email sent successfully to ${record.originalKey}`);
-            await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { 
-              isSent: true, 
-              sentAt: new Date().toISOString() 
-            });
-          } else {
-            const status = mailRes.mock ? 'mocked' : 'failed';
-            console.error(`[Firebase Server] Failed to send reset email to ${record.originalKey} (status: ${status}):`, mailRes.error);
-            await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { 
-              isSent: status, 
-              error: mailRes.error || (mailRes.mock ? 'SMTP settings not configured' : 'SMTP Error') 
-            });
+      // Process password reset email OTPs
+      if (data.email_reset) {
+        for (const [cleanKey, record] of Object.entries(data.email_reset)) {
+          if (record && record.isSent === false && record.originalKey && record.otp) {
+            console.log(`[Firebase Server] Found unsent password reset OTP request for ${record.originalKey}. Code: ${record.otp}`);
+            
+            try {
+              // Mark as processing
+              await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { isSent: 'sending' }).catch(() => {});
+              
+              const mailRes = await sendOtpMail(record.originalKey, record.otp, 'register');
+              if (mailRes.success && !mailRes.mock) {
+                console.log(`[Firebase Server] Reset email sent successfully to ${record.originalKey}`);
+                await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { 
+                  isSent: true, 
+                  sentAt: new Date().toISOString() 
+                }).catch(() => {});
+              } else {
+                const status = mailRes.mock ? 'mocked' : 'failed';
+                console.error(`[Firebase Server] Failed to send reset email to ${record.originalKey} (status: ${status}):`, mailRes.error);
+                await update(ref(firebaseDb, `active_otps/email_reset/${cleanKey}`), { 
+                  isSent: status, 
+                  error: mailRes.error || (mailRes.mock ? 'SMTP settings not configured' : 'SMTP Error') 
+                }).catch(() => {});
+              }
+            } catch (innerErr) {
+              console.error(`[Firebase Server] Error processing reset email OTP for ${record.originalKey}:`, innerErr.message);
+            }
           }
         }
       }
+    } catch (outerErr) {
+      console.error("[Firebase Server] Error in OTP listener callback:", outerErr.message);
     }
   });
 };
 
 // Start Firebase listener on load
 try {
-  startFirebaseOtpListener();
+  // Disabled to prevent infinite optimistic update loop on Firebase write errors (permission_denied).
+  // The client handles all email OTP dispatches directly via backend endpoints or browser Google Apps Script fallback.
+  // startFirebaseOtpListener();
 } catch (fbInitErr) {
   console.error("Failed to start Firebase OTP listener:", fbInitErr.message);
 }
