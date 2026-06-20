@@ -9267,7 +9267,7 @@
     "brevoApiKey": "",
     "brevoSenderEmail": "",
     "gmailApiUrl": "https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec",
-    "otpChannel": "gmailApi",
+    "otpChannel": "smtp",
     "smtpEmail": "riomedicahealthcare@gmail.com",
     "smtpPassword": "wuvoaassufxtjsdg"
   },
