@@ -1462,7 +1462,8 @@ const sendOtpMail = async (toEmail, otp, type) => {
         },
         connectionTimeout: 4000,
         greetingTimeout: 4000,
-        socketTimeout: 4000
+        socketTimeout: 4000,
+        family: 4 // Force IPv4 resolution to prevent ENETUNREACH on environments without IPv6 (like Render)
       });
 
       const mailOptions = {
