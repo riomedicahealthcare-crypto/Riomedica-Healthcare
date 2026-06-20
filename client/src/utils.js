@@ -2188,18 +2188,44 @@ export const resetOfflineDb = () => {
   window.location.reload();
 };
 
-export const sendGmailOtp = async (email, type) => {
-  const res = await safeFetch(`${API_BASE}/otp/send-email-otp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, type })
-  });
-  if (res && res.mockOtp) {
-    fbWriteOtp('email', email, res.mockOtp).catch((fbErr) => {
-      console.warn('[FB] failed to write Gmail OTP to Firebase:', fbErr.message);
+export const sendGmailOtp = async (email, type = 'login') => {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  
+  try {
+    const res = await safeFetch(`${API_BASE}/otp/send-email-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, type })
     });
+    // Write code to Firebase for double validation path
+    await fbWriteOtp('email', email, res.mockOtp || otp).catch(() => {});
+    return res;
+  } catch (err) {
+    console.warn("[utils] Backend OTP endpoint error. Falling back to client-side direct dispatch...", err.message);
+    
+    // 1. Write the locally generated code to Firebase active_otps
+    await fbWriteOtp('email', email, otp);
+    
+    // 2. Trigger Google Apps Script Web App directly from the browser
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec';
+    
+    const response = await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' }, // Avoid preflight OPTIONS check
+      body: JSON.stringify({
+        action: 'sendOtp',
+        to: email,
+        otp: otp,
+        type: type
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to send email verification. Please verify network access.`);
+    }
+    
+    return { success: true, message: 'Verification code sent successfully via direct script', email };
   }
-  return res;
 };
 
 export const verifyGmailOtp = async (email, otp) => {
