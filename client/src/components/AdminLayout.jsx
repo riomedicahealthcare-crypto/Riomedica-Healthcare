@@ -56,6 +56,7 @@ export default function AdminLayout() {
   const [loginMethod, setLoginMethod] = useState('otp'); // 'otp' | 'password'
   const [adminOtp, setAdminOtp] = useState('');
   const [adminOtpSent, setAdminOtpSent] = useState(false);
+  const [adminMockOtp, setAdminMockOtp] = useState('');
   const [adminOtpLoading, setAdminOtpLoading] = useState(false);
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   const [require2FA, setRequire2FA] = useState(false);
@@ -86,9 +87,13 @@ export default function AdminLayout() {
   const handleSendAdminOtp = async () => {
     setAdminOtpLoading(true);
     setAdminLoginError('');
+    setAdminMockOtp('');
     try {
-      await sendGmailOtp(ADMIN_EMAIL);
+      const res = await sendGmailOtp(ADMIN_EMAIL);
       setAdminOtpSent(true);
+      if (res && res.mockOtp) {
+        setAdminMockOtp(res.mockOtp);
+      }
     } catch (err) {
       setAdminLoginError('Failed to send OTP. Please try again.');
     } finally {
@@ -2487,7 +2492,18 @@ export default function AdminLayout() {
                         {adminOtpLoading ? '...' : adminOtpSent ? '✓ Sent' : 'Send OTP'}
                       </button>
                     </div>
-                    {adminOtpSent && <p style={{ color: '#34d399', fontSize: '0.75rem', marginTop: '8px' }}>✓ OTP sent to {ADMIN_EMAIL}</p>}
+                    {adminOtpSent && (
+                      <div style={{ marginTop: '10px' }}>
+                        <p style={{ color: '#34d399', fontSize: '0.75rem' }}>✓ OTP sent to {ADMIN_EMAIL}</p>
+                        {adminMockOtp && (
+                          <div style={{ marginTop: '8px', padding: '10px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'center' }}>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>[MOCK GMAIL OTP]</span>
+                            <span style={{ fontFamily: 'monospace', fontSize: '1.25rem', fontWeight: 800, color: '#10b981', letterSpacing: '3px' }}>{adminMockOtp}</span>
+                            <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Use this code for quick entry if email delivery is delayed.</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div>
