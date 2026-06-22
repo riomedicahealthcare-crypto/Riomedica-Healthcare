@@ -1639,29 +1639,33 @@ try {
 
 // Route to send general email OTP (either register or login)
 app.post('/api/otp/send-email-otp', async (req, res) => {
-  const { email, type } = req.body;
+  const { email, type, clientOtp } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Email address is required' });
   }
 
-  const otp = generateOtp();
+  let otp = generateOtp();
   const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minute expiry
   const key = email.toLowerCase();
-
-  activeOtps.email[key] = { otp, expiresAt };
 
   const mailRes = await sendOtpMail(email, otp, type || 'login');
 
   if (!mailRes.success) {
-    delete activeOtps.email[key];
     return res.status(500).json({ error: mailRes.error || 'Failed to send verification email. Please verify SMTP setup.' });
   }
+
+  // When email is mocked (no real delivery), adopt the client-supplied OTP so that
+  // the code the server verifies on login matches exactly what the client dispatched
+  // via Google Apps Script. Without this the two codes diverge and login always fails.
+  if (mailRes.mock && clientOtp && /^\d{6}$/.test(clientOtp)) {
+    otp = clientOtp;
+  }
+
+  activeOtps.email[key] = { otp, expiresAt };
 
   res.json({ 
     message: 'Verification code sent successfully', 
     email,
-    // Expose whether this was mocked (no real email sent) so the client can
-    // trigger Google Apps Script directly as an additional delivery channel.
     mock: mailRes.mock || false
   });
 });
@@ -1742,7 +1746,7 @@ app.post('/api/otp/verify-mobile', (req, res) => {
 
 // Route to send email OTP for password reset
 app.post('/api/otp/send-email', async (req, res) => {
-  const { usernameOrEmail } = req.body;
+  const { usernameOrEmail, clientOtp } = req.body;
   if (!usernameOrEmail) {
     return res.status(400).json({ error: 'Username or email is required' });
   }
@@ -1761,22 +1765,27 @@ app.post('/api/otp/send-email', async (req, res) => {
     return res.status(404).json({ error: 'No approved partner account found with this email or username' });
   }
 
-  const otp = generateOtp();
+  let otp = generateOtp();
   const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minute expiry
   const key = usernameOrEmail.toLowerCase();
-
-  activeOtps.email[key] = { otp, expiresAt };
 
   const mailRes = await sendOtpMail(user.email, otp, 'register');
 
   if (!mailRes.success) {
-    delete activeOtps.email[key];
     return res.status(500).json({ error: mailRes.error || 'Failed to send verification email. Please verify SMTP setup.' });
   }
 
+  // When email is mocked, adopt client OTP so verification matches what GAS sent
+  if (mailRes.mock && clientOtp && /^\d{6}$/.test(clientOtp)) {
+    otp = clientOtp;
+  }
+
+  activeOtps.email[key] = { otp, expiresAt };
+
   res.json({ 
     message: 'OTP sent to registered email address', 
-    email: user.email
+    email: user.email,
+    mock: mailRes.mock || false
   });
 });
 

@@ -1950,15 +1950,19 @@ export const verifyMobileOtp = async (mobile, otp) => {
 };
 
 export const sendEmailOtp = async (usernameOrEmail) => {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const res = await safeFetch(`${API_BASE}/otp/send-email`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ usernameOrEmail })
+    body: JSON.stringify({ usernameOrEmail, clientOtp: otp })
   });
-  if (res && res.mockOtp) {
-    fbWriteOtp('email_reset', usernameOrEmail, res.mockOtp).catch((fbErr) => {
-      console.warn('[FB] failed to write email reset OTP to Firebase:', fbErr.message);
-    });
+  // Write to Firebase for fallback verification
+  await fbWriteOtp('email_reset', usernameOrEmail, otp).catch(() => {});
+  if (!window.activeLocalOtps) window.activeLocalOtps = { mobile: {}, email: {} };
+  window.activeLocalOtps.email[usernameOrEmail.toLowerCase()] = otp;
+  // If server mocked the email, fire GAS to deliver it
+  if (res && res.mock) {
+    _dispatchOtpViaGas(res.email || usernameOrEmail, otp, 'register').catch(() => {});
   }
   return res;
 };
@@ -2274,7 +2278,7 @@ export const sendGmailOtp = async (email, type = 'login') => {
     const res = await safeFetch(`${API_BASE}/otp/send-email-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, type })
+      body: JSON.stringify({ email, type, clientOtp: otp })
     });
 
     // Write client OTP to Firebase so verification works even if server restarts
