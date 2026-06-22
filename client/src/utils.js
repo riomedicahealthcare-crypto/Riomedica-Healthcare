@@ -28,6 +28,15 @@ const getApiBase = () => {
   }
   if (typeof window === 'undefined') return 'http://localhost:5000/api';
   const origin = window.location.origin;
+  
+  // Detect Capacitor/Native App environment running on localhost or custom scheme
+  const isCapacitor = window.Capacitor || 
+    (origin.includes('localhost') && !origin.includes(':5000') && !origin.includes(':517') && !origin.includes(':3000'));
+    
+  if (isCapacitor) {
+    return 'https://riomedica-healthcare-1.onrender.com/api';
+  }
+  
   if (origin.includes(':517')) { // Vite dev server
     return 'http://localhost:5000/api';
   }
@@ -40,6 +49,15 @@ const getImageBase = () => {
   }
   if (typeof window === 'undefined') return 'http://localhost:5000';
   const origin = window.location.origin;
+
+  // Detect Capacitor/Native App environment running on localhost or custom scheme
+  const isCapacitor = window.Capacitor || 
+    (origin.includes('localhost') && !origin.includes(':5000') && !origin.includes(':517') && !origin.includes(':3000'));
+    
+  if (isCapacitor) {
+    return 'https://riomedica-healthcare-1.onrender.com';
+  }
+
   if (origin.includes(':517')) { // Vite dev server
     return 'http://localhost:5000';
   }
