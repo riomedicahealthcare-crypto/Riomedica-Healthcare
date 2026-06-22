@@ -43,7 +43,7 @@ export const safeUpdate = async (updates, timeoutMs = 45000) => {
     return true;
   } catch (err) {
     console.error(`[FB] update error:`, err.message);
-    return false;
+    throw err;
   }
 };
 

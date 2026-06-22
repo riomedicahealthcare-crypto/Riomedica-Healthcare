@@ -1103,10 +1103,7 @@ export default function AdminLayout() {
           lbl: prod.lbl
         };
       }
-      const fbResult = await safeUpdate(fbUpdates);
-      if (!fbResult) {
-        throw new Error("Firebase multi-path update failed");
-      }
+      await safeUpdate(fbUpdates);
 
       // 2. Sync to Server API in batches in background (skipping duplicate Firebase updates)
       const chunkSize = 50;
@@ -2209,10 +2206,7 @@ export default function AdminLayout() {
           fbUpdates[`products/${prod.id}`] = prod;
         }
 
-        const fbResult = await safeUpdate(fbUpdates);
-        if (!fbResult) {
-          throw new Error("Failed to write import data to Firebase Realtime Database.");
-        }
+        await safeUpdate(fbUpdates);
 
         // 2. Sync to local server database in background
         bulkInsertProductsAndCategories(inserted, newCategories);
