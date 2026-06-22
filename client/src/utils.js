@@ -865,17 +865,12 @@ function handleLocalFallback(url, options) {
     }
   }
 
-  // --- OTP MOCKS ---
+  // --- OTP DELIVERY ---
+  // NOTE: For email OTP sending, we throw here so the sendGmailOtp catch block
+  // can deliver a REAL email via Google Apps Script fallback. Never silently mock.
   if (path === '/otp/send-email-otp') {
     if (method === 'POST') {
-      const { email, type } = JSON.parse(options.body);
-      const mockOtp = Math.floor(100000 + Math.random() * 900000).toString();
-      if (!window.activeLocalOtps) {
-        window.activeLocalOtps = { mobile: {}, email: {} };
-      }
-      window.activeLocalOtps.email[email.toLowerCase()] = mockOtp;
-      console.log(`[OFFLINE MOCK EMAIL OTP] Code to ${email} is: ${mockOtp}`);
-      return { message: 'Verification code sent successfully (Offline Mock)', mockOtp, email };
+      throw new Error('[Offline] Server unavailable for OTP dispatch. Routing via direct email delivery.');
     }
   }
 
@@ -2250,18 +2245,30 @@ export const sendGmailOtp = async (email, type = 'login') => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, type })
     });
-    // Write code to Firebase for double validation path
+    // Write client OTP to Firebase so verification works even if server restarts
     await fbWriteOtp('email', email, res.mockOtp || otp).catch(() => {});
+    // Also store in window.activeLocalOtps so offline /login fallback can verify
+    if (!window.activeLocalOtps) window.activeLocalOtps = { mobile: {}, email: {} };
+    window.activeLocalOtps.email[email.toLowerCase()] = res.mockOtp || otp;
     return res;
   } catch (err) {
     console.warn("[utils] Backend OTP endpoint error. Falling back to client-side direct dispatch...", err.message);
     
     // 1. Write the locally generated code to Firebase active_otps
-    await fbWriteOtp('email', email, otp);
+    await fbWriteOtp('email', email, otp).catch(() => {});
     
-    // 2. Trigger Google Apps Script Web App directly from the browser
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec';
+    // 2. Store in window.activeLocalOtps for offline admin login verification
+    if (!window.activeLocalOtps) window.activeLocalOtps = { mobile: {}, email: {} };
+    window.activeLocalOtps.email[email.toLowerCase()] = otp;
     
+    // 3. Try to get the admin-configured Google Apps Script URL from Firebase settings
+    let scriptUrl = 'https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec';
+    try {
+      const fbSettings = await fbGetSettings();
+      if (fbSettings && fbSettings.gmailApiUrl) scriptUrl = fbSettings.gmailApiUrl;
+    } catch (_se) { /* use hardcoded fallback URL */ }
+    
+    // 4. Trigger Google Apps Script Web App directly from the browser
     const response = await fetch(scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' }, // Avoid preflight OPTIONS check
