@@ -1316,7 +1316,21 @@ const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 // Helper to send Gmail OTP via SMTP
 const sendOtpMail = async (toEmail, otp, type) => {
   const db = readDb();
-  const settings = db.settings || {};
+  let settings = db.settings || {};
+
+  // Read settings from Firebase first — these persist across Render container restarts
+  // so that gmailApiUrl / otpChannel configured via admin UI always take effect.
+  try {
+    const fbSnap = await get(ref(firebaseDb, 'settings'));
+    if (fbSnap.exists()) {
+      const fbSettings = fbSnap.val();
+      // Firebase values override stale db.json values
+      settings = { ...settings, ...fbSettings };
+    }
+  } catch (fbSettingsErr) {
+    console.warn('[sendOtpMail] Firebase settings read failed, falling back to db.json:', fbSettingsErr.message);
+  }
+
   const channel = settings.otpChannel || 'mock';
   const purpose = (type === 'register' || type === 'registration') ? 'Registration' : 'Sign In';
 
@@ -1645,7 +1659,10 @@ app.post('/api/otp/send-email-otp', async (req, res) => {
 
   res.json({ 
     message: 'Verification code sent successfully', 
-    email
+    email,
+    // Expose whether this was mocked (no real email sent) so the client can
+    // trigger Google Apps Script directly as an additional delivery channel.
+    mock: mailRes.mock || false
   });
 });
 

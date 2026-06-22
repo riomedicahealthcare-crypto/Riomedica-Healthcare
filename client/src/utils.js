@@ -2236,6 +2236,37 @@ export const resetOfflineDb = () => {
   window.location.reload();
 };
 
+// Internal helper: dispatch OTP email directly via Google Apps Script.
+// Used both when server is offline and when server returns mock:true.
+const _dispatchOtpViaGas = async (email, otp, type) => {
+  let scriptUrl = 'https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec';
+  try {
+    const fbSettings = await fbGetSettings();
+    if (fbSettings && fbSettings.gmailApiUrl) scriptUrl = fbSettings.gmailApiUrl;
+  } catch (_se) { /* use hardcoded fallback URL */ }
+
+  const purpose = (type === 'register' || type === 'registration') ? 'Registration' : 'Sign In';
+  const emailBody = `Please use the following 6-digit security code to verify your account for ${purpose}. This code is valid for 5 minutes.\n\nCode: ${otp}\n\nThis is an automated message from Riomedica Healthcare.`;
+  const emailHtml = `<div style="font-family:Helvetica,Arial,sans-serif;max-width:500px;margin:0 auto;padding:30px;border:1px solid #e2e8f0;border-radius:16px;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.05)"><div style="text-align:center;margin-bottom:24px"><h2 style="color:#10b981;margin:0;font-size:24px;font-weight:800">RIOMEDICA HEALTHCARE</h2><span style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;letter-spacing:1px">Secure Verification Service</span></div><div style="font-size:15px;color:#334155;line-height:1.6;margin-bottom:24px"><p style="margin-top:0">Hello,</p><p>Please use the following 6-digit security code to verify your account for <strong>${purpose}</strong>. This code is valid for 5 minutes.</p><div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:20px;text-align:center;margin:24px 0"><span style="font-family:monospace;font-size:36px;font-weight:800;color:#0f172a;letter-spacing:6px;display:inline-block">${otp}</span></div><p style="font-size:13px;color:#64748b;margin-bottom:0">If you did not request this code, please ignore this email.</p></div><hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"><div style="text-align:center;font-size:11px;color:#94a3b8"><p style="margin:0">&copy; 2026 Riomedica Healthcare Private Limited. All Rights Reserved.</p></div></div>`;
+
+  try {
+    await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' }, // text/plain avoids CORS preflight
+      body: JSON.stringify({
+        to: email,
+        subject: `Riomedica Verification Code: ${otp}`,
+        body: emailBody,
+        htmlBody: emailHtml
+      })
+    });
+    console.log('[GAS] OTP dispatched successfully via Google Apps Script');
+  } catch (scriptErr) {
+    console.warn('[GAS] Direct script call failed:', scriptErr.message);
+    // OTP is already in Firebase and window.activeLocalOtps — login can still verify
+  }
+};
+
 export const sendGmailOtp = async (email, type = 'login') => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   
@@ -2245,11 +2276,21 @@ export const sendGmailOtp = async (email, type = 'login') => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, type })
     });
+
     // Write client OTP to Firebase so verification works even if server restarts
-    await fbWriteOtp('email', email, res.mockOtp || otp).catch(() => {});
+    await fbWriteOtp('email', email, otp).catch(() => {});
     // Also store in window.activeLocalOtps so offline /login fallback can verify
     if (!window.activeLocalOtps) window.activeLocalOtps = { mobile: {}, email: {} };
-    window.activeLocalOtps.email[email.toLowerCase()] = res.mockOtp || otp;
+    window.activeLocalOtps.email[email.toLowerCase()] = otp;
+
+    // If the server's email channel is set to 'mock' (e.g. after a Render container
+    // restart that resets db.json before Firebase settings are applied), it will return
+    // mock:true — no real email was sent. Fire GAS directly to guarantee delivery.
+    if (res.mock) {
+      console.warn('[sendGmailOtp] Server returned mock:true — triggering GAS direct dispatch...');
+      _dispatchOtpViaGas(email, otp, type).catch(() => {});
+    }
+
     return res;
   } catch (err) {
     console.warn("[utils] Backend OTP endpoint error. Falling back to client-side direct dispatch...", err.message);
@@ -2261,28 +2302,8 @@ export const sendGmailOtp = async (email, type = 'login') => {
     if (!window.activeLocalOtps) window.activeLocalOtps = { mobile: {}, email: {} };
     window.activeLocalOtps.email[email.toLowerCase()] = otp;
     
-    // 3. Try to get the admin-configured Google Apps Script URL from Firebase settings
-    let scriptUrl = 'https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec';
-    try {
-      const fbSettings = await fbGetSettings();
-      if (fbSettings && fbSettings.gmailApiUrl) scriptUrl = fbSettings.gmailApiUrl;
-    } catch (_se) { /* use hardcoded fallback URL */ }
-    
-    // 4. Trigger Google Apps Script Web App directly from the browser
-    const response = await fetch(scriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' }, // Avoid preflight OPTIONS check
-      body: JSON.stringify({
-        action: 'sendOtp',
-        to: email,
-        otp: otp,
-        type: type
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to send email verification. Please verify network access.`);
-    }
+    // 3. Dispatch via Google Apps Script (server is unreachable, go direct)
+    await _dispatchOtpViaGas(email, otp, type);
     
     return { success: true, message: 'Verification code sent successfully via direct script', email };
   }

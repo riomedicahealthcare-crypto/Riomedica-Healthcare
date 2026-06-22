@@ -78,7 +78,16 @@ export const subscribeToPath = (path, callback) => {
   return () => off(r, 'value', handler);
 };
 
-export const subscribeToProducts   = (cb) => subscribeToPath('products',   (v) => cb(toArray(v)));
+export const subscribeToProducts = (cb) =>
+  subscribeToPath('products', (v) => {
+    const products = toArray(v);
+    // Auto-resolve base64 images from Firebase packshots/visualaids nodes so the
+    // APK never needs the Render server to display product images
+    resolveProductImages(products)
+      .then((resolved) => cb(resolved))
+      .catch(() => cb(products));
+  });
+
 export const subscribeToCategories = (cb) => subscribeToPath('categories', (v) => cb(toArray(v)));
 export const subscribeToOffers     = (cb) => subscribeToPath('offers',     (v) => cb(toArray(v)));
 export const subscribeToBanners    = (cb) => subscribeToPath('banners',    (v) => cb(toArray(v)));
@@ -102,7 +111,104 @@ export const subscribeToConnection = (cb) => {
 
 // ─── PRODUCTS ────────────────────────────────────────────────────────────────
 
-export const fbGetProducts    = () => safeGet('products').then(toArray);
+/**
+ * Resolves product packshot/visualAid relative URLs to real base64 data URLs
+ * fetched directly from Firebase (`packshots/` and `visualaids/` nodes).
+ * Strategy:
+ *  1. Bulk-fetch entire packshots/ and visualaids/ nodes (2 reads, 10-second timeout).
+ *  2. For any product still missing an image after the bulk pass, individually
+ *     fetch `packshots/{id}` and `visualaids/{id}_{idx}` — covers products whose
+ *     images were stored by older server-side uploads before the separate nodes existed.
+ * This eliminates dependence on the Render server for displaying images in the APK.
+ */
+const resolveProductImages = async (products) => {
+  try {
+    const needsResolution = products.filter(
+      (p) =>
+        (p.packshot && p.packshot.startsWith('/uploads/')) ||
+        (Array.isArray(p.visualAids) && p.visualAids.some((a) => a && a.startsWith('/uploads/')))
+    );
+    if (needsResolution.length === 0) return products;
+
+    // ── Pass 1: bulk fetch (2 reads total) with 10-second APK-safe timeout ──
+    let packshots = {};
+    let visualaids = {};
+    try {
+      const bulkFetch = Promise.all([safeGet('packshots'), safeGet('visualaids')]);
+      const timeout   = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('bulk-fetch timeout')), 10000)
+      );
+      const [psData, vaData] = await Promise.race([bulkFetch, timeout]);
+      packshots  = psData || {};
+      visualaids = vaData || {};
+    } catch (bulkErr) {
+      console.warn('[FB] Bulk packshots/visualaids fetch failed:', bulkErr.message,
+        '— falling back to individual reads.');
+    }
+
+    // Apply bulk results
+    const firstPass = products.map((p) => {
+      const prod = { ...p };
+      if (prod.packshot && prod.packshot.startsWith('/uploads/') && packshots[p.id]) {
+        prod.packshot = packshots[p.id];
+      }
+      if (Array.isArray(prod.visualAids)) {
+        prod.visualAids = prod.visualAids.map((aid, idx) => {
+          const key = `${p.id}_${idx}`;
+          if (aid && aid.startsWith('/uploads/') && visualaids[key]) return visualaids[key];
+          return aid;
+        });
+      }
+      return prod;
+    });
+
+    // ── Pass 2: individual reads for products still missing images ──
+    const stillMissing = firstPass
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) =>
+        (p.packshot && p.packshot.startsWith('/uploads/')) ||
+        (Array.isArray(p.visualAids) && p.visualAids.some((a) => a && a.startsWith('/uploads/')))
+      );
+
+    if (stillMissing.length > 0) {
+      await Promise.all(
+        stillMissing.map(async ({ p, i }) => {
+          // Individual packshot read
+          if (p.packshot && p.packshot.startsWith('/uploads/')) {
+            try {
+              const psData = await safeGet(`packshots/${p.id}`);
+              if (psData) firstPass[i] = { ...firstPass[i], packshot: psData };
+            } catch (_) {}
+          }
+          // Individual visualAid reads
+          if (Array.isArray(p.visualAids)) {
+            const resolvedAids = await Promise.all(
+              p.visualAids.map(async (aid, aidIdx) => {
+                if (!aid || !aid.startsWith('/uploads/')) return aid;
+                try {
+                  const vaData = await safeGet(`visualaids/${p.id}_${aidIdx}`);
+                  return vaData || aid;
+                } catch (_) { return aid; }
+              })
+            );
+            firstPass[i] = { ...firstPass[i], visualAids: resolvedAids };
+          }
+        })
+      );
+    }
+
+    return firstPass;
+  } catch (err) {
+    console.warn('[FB] resolveProductImages failed, returning raw products:', err.message);
+    return products; // graceful fallback — show whatever we have
+  }
+};
+
+export const fbGetProducts = async () => {
+  const products = toArray(await safeGet('products'));
+  return resolveProductImages(products);
+};
+
 
 export const fbSetProducts    = async (products) => {
   if (Array.isArray(products)) {
