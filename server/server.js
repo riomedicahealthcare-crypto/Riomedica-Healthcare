@@ -598,6 +598,34 @@ app.put('/api/products/:id', requireAdminAuth, productUploads, (req, res) => {
   res.json(updatedProduct);
 });
 
+app.post('/api/products/bulk-insert', requireAdminAuth, (req, res) => {
+  const { products, categories } = req.body;
+  const db = readDb();
+  let productsAdded = 0;
+  let categoriesAdded = 0;
+
+  if (Array.isArray(categories)) {
+    categories.forEach(cat => {
+      if (!db.categories.find(c => c.id === cat.id)) {
+        db.categories.push(cat);
+        categoriesAdded++;
+      }
+    });
+  }
+
+  if (Array.isArray(products)) {
+    products.forEach(prod => {
+      if (!db.products.find(p => p.id === prod.id)) {
+        db.products.push(prod);
+        productsAdded++;
+      }
+    });
+  }
+
+  writeDb(db);
+  res.json({ success: true, productsAdded, categoriesAdded });
+});
+
 app.post('/api/products/bulk-update', requireAdminAuth, (req, res) => {
   const { products } = req.body;
   if (!Array.isArray(products)) {

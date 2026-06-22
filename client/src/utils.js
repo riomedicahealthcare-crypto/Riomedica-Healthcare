@@ -15,7 +15,9 @@ import {
   fbGetMROffers, fbAddMROffer, fbDeleteMROffer,
   fbGetSettings, fbSetSettings,
   fbLoginUser,
-  fbGetAdmin
+  fbGetAdmin,
+  fbUpdateProducts,
+  safeUpdate
 } from './firebaseDb';
 
 const getApiBase = () => {
@@ -1560,11 +1562,9 @@ export const updateProduct = async (id, formData) => {
   return productData;
 };
 
-export const bulkUpdateProducts = async (products) => {
-  if (Array.isArray(products)) {
-    for (const p of products) {
-      await fbSetProduct(p.id, p);
-    }
+export const bulkUpdateProducts = async (products, skipFirebase = false) => {
+  if (!skipFirebase && Array.isArray(products) && products.length > 0) {
+    await fbUpdateProducts(products);
   }
   safeFetch(`${API_BASE}/products/bulk-update`, {
     method: 'POST',
@@ -2206,6 +2206,14 @@ export const bulkImportProducts = async (formData) => {
     throw new Error(err.error || `Server error ${res.status}`);
   }
   return res.json();
+};
+
+export const bulkInsertProductsAndCategories = async (products, categories) => {
+  return safeFetch(`${API_BASE}/products/bulk-insert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ products, categories })
+  }).catch(() => {});
 };
 
 export const getLocalFallbackStatus = () => isUsingLocalFallback;

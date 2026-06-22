@@ -37,6 +37,16 @@ export const safeSet = async (path, data) => {
   }
 };
 
+export const safeUpdate = async (updates) => {
+  try {
+    await withTimeout(update(ref(db), updates));
+    return true;
+  } catch (err) {
+    console.error(`[FB] update error:`, err.message);
+    return false;
+  }
+};
+
 // Convert Firebase object-map to array (firebase stores arrays as objects with keys)
 export const toArray = (obj) => {
   if (!obj) return [];
@@ -86,6 +96,13 @@ export const subscribeToConnection = (cb) => {
 export const fbGetProducts    = () => safeGet('products').then(toArray);
 export const fbSetProducts    = (products) => safeSet('products', products);
 export const fbSetProduct     = (id, product) => safeSet(`products/${id}`, product);
+export const fbUpdateProducts = async (products) => {
+  const updates = {};
+  for (const p of products) {
+    updates[`products/${p.id}`] = p;
+  }
+  return safeUpdate(updates);
+};
 export const fbDeleteProduct  = (id) => remove(ref(db, `products/${id}`));
 
 // ─── CATEGORIES ──────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import {
   updateProduct, deleteProduct, resetProducts, addCategory, deleteCategory, 
   getOffers, addOffer, deleteOffer, getRegistrations, approveRegistration,
   denyRegistration, IMAGE_BASE, getImgUrl, getLocalFallbackStatus, getBranding, updateBranding,
-  getBanners, addBanner, deleteBanner, bulkImportProducts, bulkUpdateProducts, getSettings, updateSettings,
+  getBanners, addBanner, deleteBanner, bulkImportProducts, bulkUpdateProducts, bulkInsertProductsAndCategories, getSettings, updateSettings,
   getOrders, updateOrderStatus, deleteOrder,
   loginUser, sendGmailOtp,
   verifyAdmin2FA, setupAdmin2FA, enableAdmin2FA, disableAdmin2FA, changeAdminPassword, getAdminSecurityStatus,
@@ -24,6 +24,7 @@ import {
   subscribeToOrders, 
   subscribeToRegistrations,
   subscribeToConnection,
+  safeUpdate,
   fbSetProduct,
   fbDeleteProduct,
   fbSetCategory,
@@ -1089,25 +1090,29 @@ export default function AdminLayout() {
     }
 
     try {
-      // 1. Sync specific records to Firebase RTDB (under products/id node)
+      // 1. Sync specific records to Firebase RTDB (under products/id node) using a single bulk update
+      const fbUpdates = {};
       for (const prod of updatedProductsList) {
         // Keep original Firebase objects intact (maintain image references in Firebase products node)
         const fbCurrent = products.find(orig => orig.id === prod.id) || {};
-        const fbUpdate = {
+        fbUpdates[`products/${prod.id}`] = {
           ...fbCurrent,
           categoryId: prod.categoryId,
           indications: prod.indications,
           dosage: prod.dosage,
           lbl: prod.lbl
         };
-        await fbSetProduct(prod.id, fbUpdate);
+      }
+      const fbResult = await safeUpdate(fbUpdates);
+      if (!fbResult) {
+        throw new Error("Firebase multi-path update failed");
       }
 
-      // 2. Sync to Server API in batches
+      // 2. Sync to Server API in batches in background (skipping duplicate Firebase updates)
       const chunkSize = 50;
       for (let i = 0; i < updatedProductsList.length; i += chunkSize) {
         const chunk = updatedProductsList.slice(i, i + chunkSize);
-        await bulkUpdateProducts(chunk);
+        bulkUpdateProducts(chunk, true);
       }
 
       alert(`Successfully auto-analyzed compositions and updated therapeutic details for ${updatedCount} products in the database!`);
@@ -2127,7 +2132,9 @@ export default function AdminLayout() {
       }
 
       const inserted = [];
+      const newCategories = [];
       const errors = [];
+      const workingCategories = [...categories];
 
       for (let idx = 0; idx < rows.length; idx++) {
         const row = rows[idx];
@@ -2143,7 +2150,7 @@ export default function AdminLayout() {
         let categoryId = '';
         if (catNameRaw) {
           const catSlug = catNameRaw.toLowerCase().replace(/[^a-z0-9]/g, '-');
-          let matchedCat = categories.find(
+          let matchedCat = workingCategories.find(
             c => c.name.toLowerCase() === catNameRaw.toLowerCase() || c.id === catSlug
           );
           if (!matchedCat) {
@@ -2163,8 +2170,8 @@ export default function AdminLayout() {
               description: `Formulations belonging to the ${catNameRaw} therapeutic category.`,
               icon
             };
-            await addCategory(matchedCat);
-            categories.push(matchedCat); // Update in-memory categories list for duplicate checks
+            newCategories.push(matchedCat);
+            workingCategories.push(matchedCat);
           }
           categoryId = matchedCat.id;
         }
@@ -2189,8 +2196,45 @@ export default function AdminLayout() {
           mrp:         (row['MRP'] || row['mrp'] || '').toString().trim()
         };
 
-        await addProduct(newProduct);
         inserted.push(newProduct);
+      }
+
+      if (newCategories.length > 0 || inserted.length > 0) {
+        // 1. Prepare and execute single-batch Firebase multi-path updates
+        const fbUpdates = {};
+        for (const cat of newCategories) {
+          fbUpdates[`categories/${cat.id}`] = cat;
+        }
+        for (const prod of inserted) {
+          fbUpdates[`products/${prod.id}`] = prod;
+        }
+
+        const fbResult = await safeUpdate(fbUpdates);
+        if (!fbResult) {
+          throw new Error("Failed to write import data to Firebase Realtime Database.");
+        }
+
+        // 2. Sync to local server database in background
+        bulkInsertProductsAndCategories(inserted, newCategories);
+
+        // 3. Update React states
+        if (newCategories.length > 0) {
+          setCategories(workingCategories);
+        }
+
+        // Refresh product list and localStorage cache
+        const freshProds = await getProducts();
+        if (freshProds) {
+          setProducts(freshProds);
+          try {
+            const db = JSON.parse(localStorage.getItem('riomedica_db') || '{}');
+            db.products = cleanProductsForClient(freshProds);
+            if (newCategories.length > 0) {
+              db.categories = cleanCategoriesForClient(workingCategories);
+            }
+            localStorage.setItem('riomedica_db', JSON.stringify(db));
+          } catch (_) {}
+        }
       }
 
       setImportResult({
