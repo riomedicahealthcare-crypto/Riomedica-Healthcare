@@ -8,6 +8,15 @@ import {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
+const getCleanUrl = (base64Str, prefix, id) => {
+  if (!base64Str) return '';
+  if (!base64Str.startsWith('data:')) return base64Str;
+  const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) return base64Str;
+  const ext = matches[1].split('/')[1] || 'png';
+  return `/uploads/${prefix}_${id}.${ext}`;
+};
+
 const withTimeout = (promise, timeoutMs = 3000) => {
   return Promise.race([
     promise,
@@ -94,12 +103,77 @@ export const subscribeToConnection = (cb) => {
 // ─── PRODUCTS ────────────────────────────────────────────────────────────────
 
 export const fbGetProducts    = () => safeGet('products').then(toArray);
-export const fbSetProducts    = (products) => safeSet('products', products);
-export const fbSetProduct     = (id, product) => safeSet(`products/${id}`, product);
+
+export const fbSetProducts    = async (products) => {
+  if (Array.isArray(products)) {
+    const cleaned = [];
+    for (const p of products) {
+      const cleanProd = { ...p };
+      if (p.packshot && p.packshot.startsWith('data:')) {
+        await safeSet(`packshots/${p.id}`, p.packshot);
+        cleanProd.packshot = getCleanUrl(p.packshot, 'packshot', p.id);
+      }
+      if (Array.isArray(p.visualAids)) {
+        cleanProd.visualAids = [];
+        for (let idx = 0; idx < p.visualAids.length; idx++) {
+          const aid = p.visualAids[idx];
+          if (aid && aid.startsWith('data:')) {
+            await safeSet(`visualaids/${p.id}_${idx}`, aid);
+            cleanProd.visualAids.push(getCleanUrl(aid, 'visualaid', `${p.id}_${idx}`));
+          } else {
+            cleanProd.visualAids.push(aid);
+          }
+        }
+      }
+      cleaned.push(cleanProd);
+    }
+    return safeSet('products', cleaned);
+  }
+  return safeSet('products', products);
+};
+
+export const fbSetProduct     = async (id, product) => {
+  const cleanProd = { ...product };
+  if (product.packshot && product.packshot.startsWith('data:')) {
+    await safeSet(`packshots/${id}`, product.packshot);
+    cleanProd.packshot = getCleanUrl(product.packshot, 'packshot', id);
+  }
+  if (Array.isArray(product.visualAids)) {
+    cleanProd.visualAids = [];
+    for (let idx = 0; idx < product.visualAids.length; idx++) {
+      const aid = product.visualAids[idx];
+      if (aid && aid.startsWith('data:')) {
+        await safeSet(`visualaids/${id}_${idx}`, aid);
+        cleanProd.visualAids.push(getCleanUrl(aid, 'visualaid', `${id}_${idx}`));
+      } else {
+        cleanProd.visualAids.push(aid);
+      }
+    }
+  }
+  return safeSet(`products/${id}`, cleanProd);
+};
+
 export const fbUpdateProducts = async (products) => {
   const updates = {};
   for (const p of products) {
-    updates[`products/${p.id}`] = p;
+    const cleanProd = { ...p };
+    if (p.packshot && p.packshot.startsWith('data:')) {
+      await safeSet(`packshots/${p.id}`, p.packshot);
+      cleanProd.packshot = getCleanUrl(p.packshot, 'packshot', p.id);
+    }
+    if (Array.isArray(p.visualAids)) {
+      cleanProd.visualAids = [];
+      for (let idx = 0; idx < p.visualAids.length; idx++) {
+        const aid = p.visualAids[idx];
+        if (aid && aid.startsWith('data:')) {
+          await safeSet(`visualaids/${p.id}_${idx}`, aid);
+          cleanProd.visualAids.push(getCleanUrl(aid, 'visualaid', `${p.id}_${idx}`));
+        } else {
+          cleanProd.visualAids.push(aid);
+        }
+      }
+    }
+    updates[`products/${p.id}`] = cleanProd;
   }
   return safeUpdate(updates);
 };
