@@ -27,9 +27,9 @@ export const safeGet = async (path) => {
   }
 };
 
-export const safeSet = async (path, data) => {
+export const safeSet = async (path, data, timeoutMs = 15000) => {
   try {
-    await withTimeout(set(ref(db, path), data));
+    await withTimeout(set(ref(db, path), data), timeoutMs);
     return true;
   } catch (err) {
     console.error(`[FB] write error @ ${path}:`, err.message);
@@ -37,9 +37,9 @@ export const safeSet = async (path, data) => {
   }
 };
 
-export const safeUpdate = async (updates) => {
+export const safeUpdate = async (updates, timeoutMs = 45000) => {
   try {
-    await withTimeout(update(ref(db), updates));
+    await withTimeout(update(ref(db), updates), timeoutMs);
     return true;
   } catch (err) {
     console.error(`[FB] update error:`, err.message);
