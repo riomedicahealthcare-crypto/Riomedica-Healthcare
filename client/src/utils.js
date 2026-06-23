@@ -69,9 +69,33 @@ export const IMAGE_BASE = getImageBase();
 
 export const getImgUrl = (url) => {
   if (!url) return '';
+  // Data URLs and absolute URLs are returned as-is
   if (url.startsWith('http') || url.startsWith('data:')) return url;
+
+  // In the APK (Capacitor), /uploads/ paths are NOT served from the ephemeral
+  // Render filesystem — those files are deleted after base64 conversion.
+  // Instead, rewrite to /api/image/{type}/{id} which reads from Firebase RTDB.
+  if ((window.Capacitor ||
+       (typeof window !== 'undefined' &&
+        window.location.origin.includes('localhost') &&
+        !window.location.origin.includes(':5000') &&
+        !window.location.origin.includes(':517') &&
+        !window.location.origin.includes(':3000'))) &&
+      url.startsWith('/uploads/')) {
+    // Extract type and id from filename e.g. /uploads/packshot_prod_abc.png
+    const filename = url.replace('/uploads/', '');
+    const underscoreIdx = filename.indexOf('_');
+    if (underscoreIdx !== -1) {
+      const type = filename.substring(0, underscoreIdx);   // 'packshot', 'visualaid', etc.
+      const rest = filename.substring(underscoreIdx + 1);  // 'prod_abc.png'
+      const id   = rest.replace(/\.[^.]+$/, '');           // strip extension
+      return `${IMAGE_BASE}/api/image/${type}/${id}`;
+    }
+  }
+
   return `${IMAGE_BASE}${url}`;
 };
+
 
 // Fallback Initial Data matching server/data/db.json
 const FALLBACK_DATA = {

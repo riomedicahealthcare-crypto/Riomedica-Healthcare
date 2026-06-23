@@ -1331,7 +1331,9 @@ const sendOtpMail = async (toEmail, otp, type) => {
     console.warn('[sendOtpMail] Firebase settings read failed, falling back to db.json:', fbSettingsErr.message);
   }
 
-  const channel = settings.otpChannel || 'mock';
+  const channel = settings.otpChannel || 'gmailApi'; // default to GAS, never silent mock
+  // Use admin-configured URL or the built-in hardcoded fallback GAS deployment
+  const FALLBACK_GAS_URL = 'https://script.google.com/macros/s/AKfycbwSlRmU5LdUmdzqinS4f-f_uaI-MeKr5bHVLWMeufPbyOSL8WQSiXlTFcArQw3VXq5eOQ/exec';
   const purpose = (type === 'register' || type === 'registration') ? 'Registration' : 'Sign In';
 
   console.log(`\n--- [GMAIL OTP GATEWAY] ---`);
@@ -1343,10 +1345,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
 
   // 1. Google Apps Script Web App (Gmail API)
   if (channel === 'gmailApi') {
-    if (!settings.gmailApiUrl) {
-      console.error(`[GMAIL API ERROR] Google Apps Script URL not configured.`);
-      return { success: false, mock: true, error: 'Google Apps Script URL not configured' };
-    }
+    const gasUrl = settings.gmailApiUrl || FALLBACK_GAS_URL;
     try {
       const emailBody = `Please use the following 6-digit security code to verify your account for ${purpose}. This code is valid for 5 minutes.\n\nCode: ${otp}\n\nThis is an automated message from Riomedica Healthcare.`;
       const emailHtml = `
@@ -1371,7 +1370,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
         </div>
       `;
 
-      const response = await fetch(settings.gmailApiUrl, {
+      const response = await fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
