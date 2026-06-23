@@ -12,6 +12,82 @@ import nodemailer from 'nodemailer';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, update, set, get } from 'firebase/database';
 import crypto from 'crypto';
+import https from 'https';
+
+// Custom https-based fetch wrapper that handles redirects, respects DNS ipv4first settings,
+// and avoids undici/native fetch connection crashes on environments like Render.
+const safeNodeFetch = (url, options = {}, redirectCount = 0) => {
+  if (redirectCount > 5) {
+    return Promise.reject(new Error('Too many redirects'));
+  }
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const method = options.method || 'GET';
+    const headers = options.headers || {};
+    const body = options.body;
+
+    const reqOptions = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method: method,
+      headers: { ...headers }
+    };
+
+    if (body && method !== 'GET' && !reqOptions.headers['Content-Length'] && !reqOptions.headers['content-length']) {
+      reqOptions.headers['Content-Length'] = Buffer.byteLength(body);
+    }
+
+    const req = https.request(reqOptions, (res) => {
+      // Handle redirect
+      if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+        const location = res.headers.location;
+        if (location) {
+          const redirectUrl = new URL(location, url).toString();
+          const nextOptions = { ...options };
+          if (res.statusCode === 303 || ((res.statusCode === 301 || res.statusCode === 302) && method === 'POST')) {
+            nextOptions.method = 'GET';
+            delete nextOptions.body;
+            if (nextOptions.headers) {
+              delete nextOptions.headers['Content-Length'];
+              delete nextOptions.headers['content-length'];
+            }
+          }
+          return resolve(safeNodeFetch(redirectUrl, nextOptions, redirectCount + 1));
+        }
+      }
+
+      const responseObj = {
+        status: res.statusCode,
+        ok: res.statusCode >= 200 && res.statusCode < 300,
+        headers: {
+          get: (name) => res.headers[name.toLowerCase()]
+        },
+        body: res,
+        text: () => new Promise((resolveText, rejectText) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => resolveText(data));
+          res.on('error', rejectText);
+        }),
+        json: async function() {
+          const txt = await this.text();
+          return JSON.parse(txt);
+        }
+      };
+      resolve(responseObj);
+    });
+
+    req.on('error', (err) => {
+      reject(err);
+    });
+
+    if (body && method !== 'GET') {
+      req.write(body);
+    }
+    req.end();
+  });
+};
 
 // ES Module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -1370,7 +1446,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
         </div>
       `;
 
-      const response = await fetch(gasUrl, {
+      const response = await safeNodeFetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1423,7 +1499,7 @@ const sendOtpMail = async (toEmail, otp, type) => {
         </div>
       `;
 
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      const response = await safeNodeFetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
           'accept': 'application/json',
@@ -2268,7 +2344,7 @@ CRITICAL INSTRUCTIONS FOR HUMAN-LIKE RESPONSE AND NATURAL SPEECH:
       }
     };
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`, {
+    const response = await safeNodeFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
