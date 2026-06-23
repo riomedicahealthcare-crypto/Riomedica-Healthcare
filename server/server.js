@@ -1613,6 +1613,33 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const firebaseDb = getDatabase(firebaseApp);
 
+// Global exception logging to Firebase Realtime Database
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+  try {
+    const errorRef = ref(firebaseDb, `crashes/${Date.now()}`);
+    set(errorRef, {
+      message: err.message || String(err),
+      stack: err.stack || null,
+      type: 'uncaughtException',
+      timestamp: new Date().toISOString()
+    }).catch(() => {});
+  } catch (fbErr) {}
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
+  try {
+    const errorRef = ref(firebaseDb, `crashes/${Date.now()}`);
+    set(errorRef, {
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : null,
+      type: 'unhandledRejection',
+      timestamp: new Date().toISOString()
+    }).catch(() => {});
+  } catch (fbErr) {}
+});
+
 const startFirebaseOtpListener = () => {
   const activeOtpsRef = ref(firebaseDb, 'active_otps');
   console.log("[Firebase Server] Listening for active OTP requests on Firebase RTDB...");
